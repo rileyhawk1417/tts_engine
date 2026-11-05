@@ -98,16 +98,21 @@ Decided direction:
 
 ## Plan impact
 
-- **T011 (piper streaming lane)** carries the streaming-IPC seam design — land the
-  protocol there first; it is the smallest honest vehicle for it.
-- Candidate new task (M4): **T014 resident-service lane (`tts serve`)** — deps T002/T013;
-  done-conditions: harmony gate green, resource table hooks landed, relay-bench rows
-  measured. ~~Sequence after session-4 speed~~ **Amended 2026-11-05**: piper phase A
-  (rtf 0.075, warm TTFA ≈ synth wall 90–250 ms, seeded/stable outputs) removes the
-  dependency — serve can ship on kokoro + piper warm lanes without any decode-speed
-  work; session-4 speed (candle batching/gemm) becomes throughput headroom, not a
-  prerequisite. Original throughput concern (flow-candle 0.334 backing up a FIFO
-  queue) applies only if piper falls through.
+- **T011 (piper streaming lane)** — done phase A 2026-11-05. It landed the
+  chunk-streaming seam shape (T013 chunks + `SynthStream`, seeded noise,
+  byte-stable under load) and — with amy's ≈ 0.063 wall/audio + 500/500
+  identity — made the daemon viable with no decode-speed work. The IPC
+  protocol itself is T014's, not T011's (an early draft had T011 carrying
+  the protocol; that split off when the lane landed without it).
+- **T014 (`tts serve`) — now a board task (M5)**: task file
+  [plan/tasks/T014-resident-serve.md](../plan/tasks/T014-resident-serve.md);
+  deps T002/T003/T013; done-conditions: harmony gate green, resource table
+  hooks landed, relay-bench rows measured. ~~Sequence after session-4
+  speed~~ **Amended 2026-11-05**: piper phase A removes the dependency —
+  serve ships on kokoro + piper warm lanes; session-4 speed (candle
+  batching/gemm) is throughput headroom, not a prerequisite. The original
+  concern (flow-candle 0.334 backing up a FIFO queue) applies only if piper
+  falls through.
 - **relay-bench TTS phase (when built) must measure the daemon**, not the CLI: in-container
   (3.5 CPU / 2 GB cap), warm, worker-loop=1, versus the `kokoroWorker` pipeline on the
   same lines (chat text, links/emoji paths, speaker prefix). CLI cold numbers would
@@ -117,6 +122,6 @@ Decided direction:
 
 - `docs/seam.md` — one-shot seam + chunk protocol (SynthStream, exit codes).
 - `docs/notes/scoreboard.md` — RSS/TTFA/RTF facts quoted above; grain-race identity budgets.
-- `docs/plan/index.md` — open question this note resolves; candidate T014.
+- `docs/plan/index.md` — board; M5/T014 row; resolved IPC open question links here.
 - Relay reality: `software/ThyroxDevelopment/bot-relay/src/{kokoroWorker,parakeetWorker,speaker,tts}.ts`,
   `docs/RELAY.md` "Read-aloud pipeline" §; te case study: transcription_engine `refs/relay/BENCH_NOTES.md`.

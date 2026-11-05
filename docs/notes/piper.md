@@ -66,15 +66,15 @@ System espeak-ng 1.52.0, warm in-process calls (ctypes), 20 sentences × 10 reps
 ## Groundwork ledger for the current board
 
 - kokoro / flow lanes: groundwork done (drop files, surgery, parity) — closed.
-- piper: groundwork **banked** in session-1 (discovery, surgery, seeded-noise
-  acceptance, probe timings); remaining = espeak provisioning + id-assembly vetting
-  (small, in-session) — then session-2 is pure Rust.
+- piper: **CLOSED phase A (2026-11-05)** — groundwork banked in session-1, lane
+  + gates landed in session-2 (see close-out above). Phase B (mel streaming)
+  blocked on checkpoint artifacts only.
 - chatterbox (T010): groundwork **not done** — the real remaining non-Rust work
   (clone + build chatterbox.cpp, verify C-API surface) ≈ one dedicated session before
   any FFI Rust.
-- neucodec: shelved (T012); resident-service (T014): design done, implementation is
-  Rust at the seam; session-4 speed: optional, now decoupled from T014 (see
-  resident-service.md amendment).
+- neucodec: shelved (T012); resident-service (T014): design done, board task
+  landed at `docs/plan/tasks/T014-resident-serve.md` (M5), unblocked by piper
+  phase A; session-4 speed: optional, decoupled (see resident-service.md).
 
 ## Session-2 layer-B close-out (2026-11-05, lane + gates)
 

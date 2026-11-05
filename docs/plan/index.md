@@ -58,15 +58,23 @@ Status values: `not-started` · `in-progress` · `completed` · `blocked` · `sh
 | T011 | Piper streaming lane | done-patchA 2026-11-05 (lane + gates; hard-500 500/500 identity on amy + ryan; verdict ADOPT — notes/piper.md) | T002, T003, T013 |
 | T012 | NeuTTS honest measurement experiment | done 2026-11-05 (backbone clears 50 Hz ≥2×; shelve as lane; see task file) | T003 |
 
+## Milestone M5 — resident daemon
+
+| ID | Task | Status | Depends on |
+|---|---|---|---|
+| T014 | `tts serve` resident daemon | not-started (design note shipped; unblocked by T011 phase A — no session-4-speed dependency) | T002, T003, T013 |
+
 ## Critical path
 
-T001 → T002 → T003 → T004 → T005 → T007. T006 branches after T003 (can run while T004 is built). T008 gates on T006; T009 closes M2. Everything else (T010–T013) hangs off M0.
+T001 → T002 → T003 → T004 → T005 → T007. T006 branches after T003 (can run while T004 is built). T008 gates on T006; T009 closes M2. T010/M3 and T014/M5 are independent tails off the foundation (T002, T003, T013);
+both can run while anything else is in flight.
 
 ## Open questions
 
-- G2P for the Kokoro lane: espeak-ng (GPL-linking caveat) vs misaki — spike or commit? (verify-list in targets.md)
-- Streaming IPC shape for the seam: RESOLVED DIRECTION drafted in [notes/resident-service.md](../notes/resident-service.md) — one binary, two modes (`tts synth` batch / `tts serve` resident daemon), HTTP/1.1 over UDS with NDJSON chunk frames, worker-loop=1 per lane. T011 carries the protocol; candidate task T014 (`tts serve`) proposed there, sequenced AFTER session-4 speed.
-- Which `te` lane is the default round-trip judge: nemo int8 (fastest) vs parakeet q8_0 (tiebreak)?
+- **en_US default lane**: piper ryan (WER med 20.00 hard-500, wall/audio ≈ 0.268, same judge as flow rows) measured ≥ kokoro on every axis, but the kokoro comparison is cross-judge-sha (`cdb5b135` vs `38b3d623`) — re-run kokoro on the current judge before any default-LANE switch, or accept the approximate comparison and switch. Unresolved by design until there's a reason to adjudicate.
+- ~~G2P for the Kokoro lane: espeak-ng (GPL-linking caveat) vs misaki~~ — **resolved 2026-11-05 (T004)**: espeak-ng subprocess (the misaki espeak-fallback materialization), phonemizer-style punctuation restore; caveat documented in the lane.
+- ~~Streaming IPC shape for the seam~~ — **resolved 2026-11-05** in [notes/resident-service.md](../notes/resident-service.md): HTTP/1.1 over UDS + NDJSON chunk frames, worker-loop=1, one binary two modes. Landed as board task **T014 (M5)**; piper phase A removed the session-4-speed dependency.
+- ~~Which `te` lane is the default round-trip judge~~ — **resolved 2026-11-05 (T005)**: nemo int8 default (literal-text transcriptions win on the hard set), parakeet q8_0 tiebreak; judge sha recorded per run.
 
 ## Sources
 

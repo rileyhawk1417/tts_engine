@@ -49,7 +49,7 @@ Status values: `not-started` · `in-progress` · `completed` · `blocked` · `sh
 
 | ID | Task | Status | Depends on |
 |---|---|---|---|
-| T010 | chatterbox.cpp FFI lane | not-started | T002, T003 |
+| T010 | chatterbox.cpp FFI lane | in-progress (layer-A preflight done — retargeted to llama.cpp tools/tts, see targets.md) | T002, T003 |
 
 ## Milestone M4 — streaming + measurement lanes  **(CLOSED 2026-11-05: T011 phase A adopted, T012 shelved as lane)**
 

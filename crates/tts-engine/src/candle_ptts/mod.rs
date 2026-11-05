@@ -6,5 +6,11 @@
 //! Mimi decode arrive in later sessions; the `flow-candle` lane fails cleanly
 //! until then. Decode-policy law: exact port, nothing "improved" silently —
 //! deviations are experiments on top, labeled as such.
+pub mod attention;
 pub mod cfg;
 pub mod loader;
+pub mod mlp;
+pub mod model;
+pub mod nns;
+pub mod rng;
+pub mod tok;

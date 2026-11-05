@@ -79,4 +79,56 @@ fn main() {
         .filter(|t| t.name.starts_with("flow_lm.transformer.") || t.name.starts_with("mimi.decoder"))
         .count();
     println!("sanity: remapped backbone/decoder keys present: {remapped}");
+
+    // --- session-2: real load path ------------------------------------------
+    let t0 = std::time::Instant::now();
+    let weights = tts_engine::candle_ptts::loader::Weights::from_safetensors(&weights)
+        .unwrap_or_else(|e| {
+            eprintln!("weights: {e}");
+            std::process::exit(4);
+        });
+    let remap_ms = t0.elapsed().as_millis();
+    println!(
+        "remap: {} entries kept, {} dropped in {remap_ms} ms",
+        weights.map.len(),
+        weights.dropped
+    );
+    // Every remapped entry must resolve through the VarBuilder (presence
+    // sweep — no silent drops on the candle side).
+    let vb = weights.var_builder();
+    let missing: Vec<&String> = weights
+        .map
+        .keys()
+        .filter(|k| !vb.contains_tensor(k.as_str()))
+        .collect();
+    println!(
+        "presence sweep: {}/{} keys visible through VarBuilder, {} missing",
+        weights.map.len() - missing.len(),
+        weights.map.len(),
+        missing.len()
+    );
+    assert!(missing.is_empty(), "VarBuilder lost keys: {missing:?}");
+
+    let tokenizer_path = dir.join("tokenizer.json");
+    let tok = tts_engine::candle_ptts::tok::Tok::open(&tokenizer_path)
+        .unwrap_or_else(|e| {
+            eprintln!("tokenizer: {e}");
+            std::process::exit(5);
+        });
+    let t1 = std::time::Instant::now();
+    let model = tts_engine::candle_ptts::model::TTSModel::load(
+        &vb,
+        Box::new(tok),
+        &cfg,
+        &std::collections::HashMap::new(),
+    )
+    .unwrap_or_else(|e| {
+        eprintln!("model load: {e}");
+        std::process::exit(6);
+    });
+    println!(
+        "model: TTSModel built in {} ms (eos_threshold={})",
+        t1.elapsed().as_millis(),
+        model.eos_threshold()
+    );
 }

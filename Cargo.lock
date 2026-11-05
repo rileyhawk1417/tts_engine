@@ -189,6 +189,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "candle-nn"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "437fabe77547c2447c7bdf3cc946e19db29a2832440176b419f77c80b0a9a05e"
+dependencies = [
+ "candle-core",
+ "half",
+ "libc",
+ "num-traits",
+ "rayon",
+ "safetensors 0.8.0",
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "castaway"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1489,7 +1505,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys",
@@ -1612,12 +1628,16 @@ name = "tts-engine"
 version = "0.1.0"
 dependencies = [
  "candle-core",
+ "candle-nn",
  "ort",
  "ptts",
+ "rand",
+ "rand_distr",
  "serde",
  "serde_json",
  "sha2",
  "thiserror 2.0.21",
+ "tokenizers",
  "xn",
 ]
 

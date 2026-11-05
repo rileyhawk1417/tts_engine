@@ -3,6 +3,8 @@
 //! plus an mmap'd safetensors inventory for the loader mandate: weights are
 //! never fully resident unless evidenced as a win.
 
+use candle_core::{Device, Tensor};
+
 /// Maps upstream checkpoint names onto this crate's module names, dropping the
 /// tensors the runtime has no use for. Verbatim port of the oracle's
 /// `remap_key`; keep both in lockstep — a divergence is a parity bug.
@@ -66,6 +68,13 @@ pub struct Inventory {
     /// Sum of data_offsets spans (weights bytes actually on disk).
     pub total_bytes: usize,
     /// Tensors retained by remap (not known-unused).
+    ///
+    /// Semantics note (T008): this is "renamed by remap OR not flagged
+    /// unused-by-tts-model", which is NOT the same set as the loader's kept
+    /// map. Kept-map = `remap_key(..) == Some` (e.g. 177 on phonon-31m-en:
+    /// 185 raw − 8 `flow.w_s_t` drops). `used_count` can be higher (183 here:
+    /// 185 − 2) because a few keys pass remap but stay flagged unused until
+    /// voice-prompt encoding pulls the encoder side in.
     pub used_count: usize,
 }
 
@@ -118,4 +127,53 @@ pub fn inventory(path: &std::path::Path) -> Result<Inventory, LoadError> {
         total_bytes,
         used_count,
     })
+}
+
+
+/// The tensor map a checkpoint loads into: every key remaps to Some(name)
+/// except those the remap table drops; shape/dtype checks happen per-request
+/// at `VarBuilder::get` (candle-nn's `SimpleBackend for HashMap<String,
+/// Tensor>` semantics).
+///
+/// DEVIATION (documented, T008): candle 0.11 has no zero-copy safetensors
+/// path — even the mmap route copies into owned CPU storage — so weights are
+/// materialized once here (~98 MiB f32 for phonon-31m-en), unlike the ptts
+/// lane's mmap views. `inventory` (headers only) remains the mmap-mandate
+/// surface; the candle lane's load must be revisited if residency matters.
+pub struct Weights {
+    pub map: std::collections::HashMap<String, Tensor>,
+    /// Count of remap-dropped tensors (informational, for the probe audit).
+    pub dropped: usize,
+}
+
+impl Weights {
+    pub fn from_safetensors(path: &std::path::Path) -> Result<Self, LoadError> {
+        let map = candle_core::safetensors::load(path, &Device::Cpu)
+            .map_err(|e| format!("safetensors load {}: {e}", path.display()))?;
+        let mut remapped =
+            std::collections::HashMap::with_capacity(map.len());
+        let mut dropped = 0usize;
+        for (k, v) in map {
+            match remap_key(&k) {
+                Some(name) => {
+                    if remapped.insert(name.clone(), v).is_some() {
+                        return Err(format!(
+                            "remap table maps multiple checkpoints entries to {name:?} (came from {k:?})"
+                        ));
+                    }
+                }
+                None => dropped += 1,
+            }
+        }
+        Ok(Self { map: remapped, dropped })
+    }
+
+    /// A `VarBuilder` over the owned map, f32 on CPU.
+    pub fn var_builder(&self) -> crate::candle_ptts::nns::VB {
+        candle_nn::VarBuilder::from_tensors(
+            self.map.clone(),
+            candle_core::DType::F32,
+            &Device::Cpu,
+        )
+    }
 }

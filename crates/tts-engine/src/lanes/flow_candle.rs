@@ -1,25 +1,27 @@
 //! `flow-candle` lane — T008 from-scratch Phonon-31m in candle.
 //!
-//! Session-1 scaffold: `load()` parses the checkpoint config and inventories
-//! the mmap'd safetensors weights (mmap mandate: nothing materialized), and
-//! `synthesize()` fails cleanly — the transformer / flow head / Mimi decode
-//! port in later sessions. Oracle for parity: the `flow-ptts` lane
-//! (ptts-0.6.0), per docs/plan/tasks/T008-candle-phonon-port.md.
+//! Session-2: `load()` builds the real model — remap key map into owned f32
+//! tensors (documented deviation: candle 0.11 has no zero-copy path),
+//! `VarBuilder` over that map, `TTSModel::load` (conditioners, flow head,
+//! streaming transformer) with the checkpoint's `tokenizer.json`. Synthesis
+//! still fails cleanly until the decode loop / Mimi module land. Oracle for
+//! parity: the `flow-ptts` lane (ptts-0.6.0), per
+//! docs/plan/tasks/T008-candle-phonon-port.md.
 //!
 //! Telemetry contract is identical to flow-ptts (raw checkpoint text into the
 //! g2p slot, fused normalize at `Duration::ZERO` once the plan port lands).
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use crate::types::{LaneError, LoadInfo, ModelRef, TtsLane};
 
-/// Everything `load` banks for later sessions; no mmap handle is retained
-/// (re-open lazily at use time — mmap mandate).
+/// Everything `load` banks; the TTSModel owns its materialized weights.
 pub struct CandleCheckpoint {
     pub dir: PathBuf,
     pub cfg: crate::candle_ptts::cfg::TTSConfig,
-    pub weights_path: PathBuf,
+    pub model: crate::candle_ptts::model::TTSModel,
     pub tensor_count: usize,
     pub used_count: usize,
     pub total_bytes: usize,
@@ -93,10 +95,37 @@ impl TtsLane for FlowCandleLane {
         }
         let inv = crate::candle_ptts::loader::inventory(&weights_path)
             .map_err(LaneError::Load)?;
+        // Oracle `Synth::load` semantics remapped onto owned tensors (see the
+        // DEVIATION note in loader.rs): remap_key per entry, drop-unknowns,
+        // VarBuilder on top. `load_ms` therefore includes the one-time
+        // materialization (~98 MiB f32) — that's the honest load cost.
+        let weights = crate::candle_ptts::loader::Weights::from_safetensors(&weights_path)
+            .map_err(LaneError::Load)?;
+        let vb = weights.var_builder();
+        // Oracle Checkpoint::open takes dir/tokenizer.json when it exists and
+        // leaves the tokenizer unset otherwise (config's tokenizer_name is
+        // informational on phonon).
+        let tokenizer_path = dir.join("tokenizer.json");
+        let tokenizer: crate::candle_ptts::tok::Tok = if tokenizer_path.is_file() {
+            crate::candle_ptts::tok::Tok::open(&tokenizer_path).map_err(LaneError::Load)?
+        } else {
+            return Err(LaneError::Load(format!(
+                "no tokenizer.json next to {} — phonon loads its tokenizer from the checkpoint dir",
+                dir.display()
+            )));
+        };
+        let conditions = HashMap::new();
+        let model = crate::candle_ptts::model::TTSModel::load(
+            &vb,
+            Box::new(tokenizer),
+            &cfg,
+            &conditions,
+        )
+        .map_err(|e| LaneError::Load(e.to_string()))?;
         self.loaded = Some(CandleCheckpoint {
             dir: dir.to_path_buf(),
             cfg,
-            weights_path,
+            model,
             tensor_count: inv.tensors.len(),
             used_count: inv.used_count,
             total_bytes: inv.total_bytes,
@@ -110,12 +139,13 @@ impl TtsLane for FlowCandleLane {
         &mut self,
         req: &crate::types::SynthRequest,
     ) -> Result<crate::types::SynthStream, LaneError> {
-        // Session-1 honesty: no fabricated audio. The port lands module by
-        // module behind this clean failure.
+        // Session-2 honesty: the model loads (flow-LM + conditioner +
+        // transformer behind it), but no audio comes out until the Mimi
+        // decode module lands. Same clean-failure contract as session 1.
         let _ = req;
         Err(LaneError::Synth(
-            "flow-candle port in progress (T008): transformer/flow/EOS/Mimi decode arrive in \
-             later sessions — see docs/plan/tasks/T008-candle-phonon-port.md"
+            "flow-candle port in progress (T008): the model loads; the decode loop and Mimi \
+             module arrive in later sessions — see docs/plan/tasks/T008-candle-phonon-port.md"
                 .into(),
         ))
     }

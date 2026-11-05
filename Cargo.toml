@@ -22,4 +22,12 @@ ort = { version = "2.0.0-rc.15", default-features = false, features = ["load-dyn
 ptts = { version = "0.6.0", default-features = false, features = ["hf"] }
 # T008 candle port (flow-candle feature).
 candle-core = "0.11.1"
+candle-nn = "0.11.1"
 xn = { version = "0.2.13", default-features = false }
+# ptts lane runs xn + ptts (which brings its own noise stack); the candle lane
+# owns these sampler pins to match the oracle exactly (rng.rs).
+rand = "0.9.0"
+rand_distr = "0.5.0"
+# Same pin the oracle ships for checkpoint tokenizers.json (features match
+# ptts's manifest: fancy-regex only, defaults off).
+tokenizers = { version = "0.23.1", default-features = false, features = ["fancy-regex"] }

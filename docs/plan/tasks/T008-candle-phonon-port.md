@@ -29,6 +29,30 @@ Our own implementation of Phonon-31m in candle — weights mmap'd straight off d
   backbone/decoder keys present (90). Caught + fixed: samples/frame is the
   oracle's `frame_size` = round(24000/12.5) = 1920 (seanet hop 120 → encoder
   200 fps → downsample stride 16), NOT ratios×kernel (840).
+- **Session 2 (2026-11-05, commit `0a9efbe`):** full port modules landed and
+  compiling behind `flow-candle` — `nns.rs` (linear/LayerNorm/RoPE with the
+  interleaved-pair rotation + offset-from-absolute-position contract),
+  `attention.rs` (StreamingTransformer + MhaState KV cache, mask elision at
+  t==1 per oracle, GQA expand-before-cache, `gelu_tanh` threaded per
+  checkpoint), `mlp.rs` (SimpleMLPAdaLN/ResBlock/FinalLayer/modulate, exact
+  erf GELU path, LayerNorm eps 1e-6 vs 1e-5 split), `rng.rs` (NormalRng over
+  rand 0.9 + ReplayRng), `tok.rs` (HF tokenizers 0.23), `model.rs`
+  (Conditioners/LutConditioner/FlowLM/TTSModel/prompt_text/_null
+  /sample_next_latent_cfg/EOS). Lane `load()` is REAL now: cfg ->
+  `Weights::from_safetensors` (remap into owned f32 tensors — documented
+  deviation: candle 0.11 has no zero-copy path) -> `VarBuilder` ->
+  tokenizer.json -> `TTSModel::load`; synth still fails cleanly until the
+  decode/Mimi module. Probe audits on phonon-31m-en: remap 185 raw -> 177
+  kept (8 `flow.w_s_t` drops) + 183 used-by-inventory (semantics note in
+  loader.rs), 177/177 key presence sweep through VarBuilder, TTSModel built
+  in ~50 ms (~120 ms full lane load incl. 98 MiB materialize; 0.17 s CLI
+  wall, ~225 MB RSS). Load-path bugs found by the CLI round-trip: LUT +
+  continuous conditioner `output_proj` needed `.pp("output_proj")`, and
+  `out_eos`/`input_linear` needed their submodule prefixes. Deps pinned to
+  oracle parity: rand 0.9.0, rand_distr 0.5.0, tokenizers 0.23.1
+  (fancy-regex), candle-core/candle-nn 0.11.1. 19+1 tests green, clippy
+  clean, workspace release build with graph-ort,flow-ptts,flow-candle ok.
+
 ## Done-conditions
 
 - [ ] `tts synth --lane flow-candle ...` produces audio for a corpus sentence, chunks.jsonl complete

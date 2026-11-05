@@ -45,8 +45,8 @@
 
 ## Open verify-list
 
-- [ ] `ptts` crate dependency weight (does it drag ggml/embedded runtimes?)
-- [ ] xn-ptts root LICENSE files (README states MIT OR Apache-2.0)
+- [x] `ptts` crate dependency weight (does it drag ggml/embedded runtimes?) — **resolved 2026-11-05 (T006): no ggml, no embedded runtimes.** Dep tree: `ptts` → `xn` (+`xn-gemm`/`xn-gemm-f16`/`xn-gemm-c64` pure-Rust GEMM) → `tokenizers`, `safetensors`, `gguf` (parser only), `rayon`, `memmap2`. The `hub` crate feature (network download) is OFF in our Cargo.toml; T3's earlier `ggml` worry came from the pyo3/python bindings, which we don't compile.
+- [x] xn-ptts root LICENSE files (README states MIT OR Apache-2.0) — **resolved 2026-11-05 (T006): dual LICENSE-MIT and LICENSE-APACHE present at repo root; `ptts` crate file headers + Cargo `license = "MIT OR Apache-2.0"` agree. Vendorable.**
 - [ ] phonon-40m gate terms (only needed if 40m ever used, NC)
 - [ ] pocket-tts code LICENSE before vendoring anything from kyutai-labs Rust
 - [ ] Phonon/PocketTTS Mimi decoder safetensors layout equivalence

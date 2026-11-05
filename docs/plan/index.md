@@ -34,14 +34,14 @@ Status values: `not-started` · `in-progress` · `completed` · `blocked` · `sh
 |---|---|---|---|
 | T004 | Kokoro-ORT lane end-to-end | completed (2026-11-05) | T002, T003, T013 |
 | T005 | Kokoro baseline scoreboard on Zen 2 | completed (2026-11-05) | T004 |
-| T006 | Phonon ptts-lane probe | not-started (NEXT) | T005 |
+| T006 | Phonon ptts-lane probe | done 2026-11-05 | T005 |
 
 ## Milestone M2 — flow-latent lane (Phonon, then PocketTTS checkpoint)
 
 | ID | Task | Status | Depends on |
 |---|---|---|---|
-| T006 | Phonon `ptts`-crate lane behind the seam | not-started | T002, T003 |
-| T007 | Phonon evaluation + lane-vs-lane scoreboard | not-started | T005, T006 |
+| T006 | Phonon `ptts`-crate lane behind the seam | done 2026-11-05 | T002, T003 |
+| T007 | Phonon evaluation + lane-vs-lane scoreboard | not-started (NEXT) | T005, T006 |
 | T008 | Candle from-scratch Phonon-31m port | not-started | T006 |
 | T009 | Parity gate + q-law experiments | not-started | T007, T008 |
 

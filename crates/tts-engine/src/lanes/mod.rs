@@ -3,7 +3,19 @@ pub mod smoke;
 #[cfg(feature = "graph-ort")]
 pub mod kokoro;
 
+#[cfg(feature = "flow-ptts")]
+pub mod flow_ptts;
+
 use crate::types::{ModelRef, TtsLane};
+
+/// Lane-agnostic CPU dial default: logical/2 ≈ physical cores (SMT halves
+/// give no compute; the te/STT law — threads=cores — transfers here).
+pub(crate) fn physical_core_estimate() -> usize {
+    let logical = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    (logical / 2).max(1)
+}
 
 /// Lane feature registry. Each feature-gated lane registers here:
 /// `graph-ort` (T004, `graph-ort` feature), `flow-ptts` (T006), `flow-candle`
@@ -15,6 +27,8 @@ pub fn make_lane(name: &str) -> Option<Box<dyn TtsLane>> {
         "smoke" => Some(Box::new(smoke::SmokeLane::new())),
         #[cfg(feature = "graph-ort")]
         "kokoro" => Some(Box::new(self::kokoro::KokoroLane::new())),
+        #[cfg(feature = "flow-ptts")]
+        "flow-ptts" => Some(Box::new(self::flow_ptts::FlowPttsLane::new())),
         _ => None,
     }
 }

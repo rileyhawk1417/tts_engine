@@ -38,9 +38,14 @@ done
 [ -n "$LANE" ] && [ -n "$MODEL" ] || { echo "run.sh: --lane and --model required" >&2; exit 2; }
 
 TTS=target/release/tts
-# lane features live behind cargo features (graph-ort now; more lanes land per task)
-[ -x "$TTS" ] || cargo build --release --features graph-ort -q
-cargo build --release --features graph-ort -q
+# lane features live behind cargo features: graph-ort (kokoro) + flow-ptts
+# (Phonon). Run flow-ptts rows with TTS_XN_THREADS=1 so byte-identity gates
+# pass (xn CPU FP kernels are order-nondeterministic under parallelism).
+[ -x "$TTS" ] || cargo build --release --features graph-ort,flow-ptts -q
+cargo build --release --features graph-ort,flow-ptts -q
+if [ "$LANE" = flow-ptts ]; then
+    export TTS_XN_THREADS="${TTS_XN_THREADS:-1}"
+fi
 [ -x "$TE" ] || { echo "run.sh: judge binary missing: $TE (build te with TE_FEATURES=nemo)" >&2; exit 3; }
 TE_SHA16=$(sha256sum "$TE" | cut -c1-16)
 case "$JUDGE" in

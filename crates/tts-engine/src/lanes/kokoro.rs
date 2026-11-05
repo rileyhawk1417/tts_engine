@@ -43,6 +43,7 @@ use std::time::Instant;
 use ort::session::{Session, builder::GraphOptimizationLevel};
 use ort::value::Tensor;
 
+use crate::lanes::physical_core_estimate;
 use crate::types::{
     ChunkOut, Determinism, LaneError, LoadInfo, ModelRef, RunMeta, StageTimings, SynthRequest,
     SynthStream, TtsLane, VoiceRef,
@@ -510,13 +511,6 @@ fn tokenize_phonemes(ps: &str) -> Vec<i64> {
 /// the phoneme ids pre-pad.
 fn style_row_index(token_len: usize) -> usize {
     token_len.min(MAX_PHONEME_LENGTH).saturating_sub(1)
-}
-
-fn physical_core_estimate() -> usize {
-    let logical = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(4);
-    (logical / 2).max(1)
 }
 
 fn ort_env() -> Result<&'static ort::environment::Environment, LaneError> {

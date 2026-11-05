@@ -9,6 +9,8 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 sha2 = { workspace = true }
 ort = { workspace = true, optional = true }
+ptts = { workspace = true, optional = true }
+xn = { workspace = true, optional = true }
 
 [features]
 default = []
@@ -17,3 +19,5 @@ default = []
 # the durable default (mirrors te's nemo lane); `api-21`: API level for that
 # runtime. ORT allows one shared env per process.
 graph-ort = ["dep:ort"]
+# T006 Phonon flow-latent lane (gradium/phonon-31m-en, q8 gguf via ptts 0.6).
+flow-ptts = ["dep:ptts", "dep:xn"]

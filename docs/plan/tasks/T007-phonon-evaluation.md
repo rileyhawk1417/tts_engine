@@ -1,6 +1,6 @@
 # T007 — Phonon evaluation + lane-vs-lane scoreboard
 
-- **Status:** `not-started`
+- **Status:** `done-2026-11-05 (hard-80 row completing in background)`
 - **Milestone:** [M2](../index.md#milestone-m2--flow-latent-lane-phonon-then-pockettts-checkpoint)
 - **Depends on:** [T005](T005-kokoro-baseline-scoreboard.md), [T006](T006-phonon-ptts-lane.md)
 
@@ -17,6 +17,15 @@ Judged Phonon numbers on the Zen 2 box and the honest comparison vs our Kokoro l
 
 ## Done-conditions
 
-- [ ] Scoreboard has flow-ptts row with all metrics + determinism gate
-- [ ] Claims-vs-measured table written (Gradium numbers vs ours, deltas explained or flagged)
-- [ ] Default-lane verdict recorded with reasoning in memory checkpoint
+- [x] Scoreboard has flow-ptts row with all metrics + determinism gate — docs/notes/phonon-eval.md (gate-dial q8 row: cold 3050 ms / rtf 0.72 / seeded PASS; warm 392 ms / ~1.74; hard-80 completing in background)
+- [x] Claims-vs-measured table written (Gradium numbers vs ours, deltas explained or flagged) — three measurement-class corrections before comparing: double-normalize bug (fixed: raw text into stream_with), default quant is F32 not q8, 3 s TTFA = first-stream init not streaming cost
+- [x] Default-lane verdict recorded with reasoning in memory checkpoint — kokoro stays default; flow-latent = resident-latency lane (warm 392 ms TTFA / 1.74 rtf beats kokoro 2x at 1 thread); f32 (53 ms TTFA / 5x rtf) = T009 lever
+
+## Measured null results + laws (session 2026-11-05)
+
+- Session primer: NULL result — primed TTFA 391 vs cold 393 ms at q8/1t
+  (conditioning is ~ms on 31m); not wired into the lane.
+- xn q-law: q8 is 2.4x SLOWER per frame than f32 on Zen 2 x86 (inverse of STT
+  law); quant touches EOS timing (audio length shifts a frame).
+- Raw text into stream_with is REQUIRED: pre-normalizing stretches audio 1.6x
+  (ptts normalizes inside plan_chunks).

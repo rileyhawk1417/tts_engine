@@ -83,3 +83,17 @@ Per-category round-trip WER (nemo, n=4 each):
   parakeet compile feature — the grep precheck passes but the run fails; the
   head-to-head needed `TE_FEATURES=nemo,parakeet scripts/build.sh build`
   (+ `TE_PARAKEET_LIB=/teranux/parakeet.cpp/build/libparakeet.so`).
+## 2026-11-05e — flow-ptts gate-dial correction (T007)
+
+The T006 flow-ptts numbers were measured in a corrected class (see
+notes/phonon-eval.md). PTEXT, q8, TTS_XN_THREADS=1 (seeded, byte-identity PASS):
+
+| row | TTFA | rtf | note |
+|---|---|---|---|
+| flow-ptts cold (gate) | 3050 ms | 0.72 | first-stream init ~2.7 s lands here |
+| flow-ptts warm (resident) | 392 ms | ~1.74 | beats kokoro rtf 2x at 1 thread |
+| kokoro int8 (gate ref) | 3118 ms | 0.84 | unchanged |
+
+f32 probe row (T009 candidate): TTFA 35-53 ms, ~5x rtf, deterministic, different
+audio (EOS one frame earlier).
+

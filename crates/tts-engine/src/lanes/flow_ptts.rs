@@ -10,7 +10,9 @@
 //! Stage mapping per the fixed 4-slot vocabulary (`docs/seam.md` §4, kokoro
 //! fused-graph rule applies):
 //! - `g2p` = ptts per-language text normalization (`preprocess::Normalize`),
-//!   run lane-side and measured. ptts ships its own per-language normalizer —
+//!   FUSED: plan_chunks applies the synth's normalizer inside `stream_with`
+//!   (lane-side pre-normalization double-applies and stretches generation —
+//!   measured T007). ptts ships its own per-language normalizer —
 //!   no espeak subprocess (unlike kokoro). Tokenizer + sentence split stay
 //!   fused into the first acoustic pull.
 //! - `acoustic` = SpeechStream chunk pulls: flow-LM generation + Mimi decode
@@ -316,14 +318,12 @@ impl crate::types::TtsLane for FlowPttsLane {
         };
 
         // ---- g2p slot: per-language text normalization (ptts built-in) ----
-        let (normalized, g2p): (String, Duration) = {
-            let rt = runtime
-                .lock()
-                .map_err(|_| LaneError::Synth("flow-ptts runtime poisoned".into()))?;
-            let t_g = Instant::now();
-            let text = rt.synth.normalization().apply(&req.text);
-            (text.into_owned(), t_g.elapsed())
-        };
+        // FUSED into `stream_with`: plan_chunks runs the synth's own
+        // Normalize over the raw text. Lane-side pre-normalization
+        // double-applies and measurably stretches generation (T007: same
+        // sentence+seed, pre-normalized 103,680 samples vs raw 65,280) —
+        // the raw text goes in, the g2p stage reports the fusion.
+        let g2p = Duration::ZERO;
 
         let meta = RunMeta {
             lane: "flow-ptts",
@@ -367,7 +367,7 @@ impl crate::types::TtsLane for FlowPttsLane {
                 .lock()
                 .map_err(|_| LaneError::Synth("flow-ptts runtime poisoned".into()))?;
             rt.synth
-                .stream_with(&normalized, &opts)
+                .stream_with(&req.text, &opts)
                 .map_err(|e| LaneError::Synth(format!("ptts stream: {e}")))?
         };
 

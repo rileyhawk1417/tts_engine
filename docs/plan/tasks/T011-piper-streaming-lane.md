@@ -1,22 +1,57 @@
-# T011 — Piper streaming lane (streaming-graph)
+# T011 — Piper lane (streaming-graph)
 
-- **Status:** `not-started`
+- **Status:** `in-progress` (session-1: discovery + graph surgery + acceptance probe done; Rust lane not yet built)
 - **Milestone:** [M4](../index.md#milestone-m4--streaming--measurement-lanes)
 - **Depends on:** [T002](T002-workspace-scaffold.md), [T003](T003-roundtrip-eval-harness.md), [T013](T013-longtext-chunking-module.md)
 
 ## Goal
 
-The latency competition for the flow-latent lane: streaming VITS via Piper/ONNX (split encoder/decoder, mel chunks + overlap-add), as an en_US graph-based streaming alternative.
+The latency competition for the flow-latent lane: Piper/ONNX VITS as an en_US graph lane, TTFA-first, carrying the streaming/IPC shape that later feeds `tts serve` (see `docs/notes/resident-service.md`).
 
-## Approach
+## Session-1 findings (2026-11-05, probed on the real artifacts)
 
-- Study the streaming approach (piper streaming PR #255 lineage): mel chunk sizes (~45 frames + 10 padding) and overlap-add windowing ported as documented constants, not vibes.
-- Lane layout mirrors graph-ort (ort sessions, session-per-thread, int8-first); decoder-dominance expectation from prior art: phoneme→mel fast, decode steps ~32 ms each — measure ours.
-- TTFA headline metric (streaming should beat non-stream Kokoro decisively); compare head-to-head vs flow-ptts/flow-candle on identical corpus.
-- en_US voice set minimal (2 voices); long-text runs through T013 chunking with overlap-add only at decoder level.
+Artifacts (T012 drop dir, `/teranux/hugging_face/t012-drop/piper/`):
 
-## Done-conditions
+| voice | piper version | symbols | size | graph out |
+|---|---|---|---|---|
+| `en_US-amy-medium` | 1.0.0 | 256 (map 154) | 63 MB | `(1,1,1,N)` f32, 22050 Hz |
+| `en_US-ryan-high` | 0.2.0 (legacy) | 130 | 121 MB | `(1,1,1,N)` f32, 22050 Hz |
 
-- [ ] Streaming output verified continuous (no seams audible on a 3-sentence paragraph — spot-listen + round-trip WER no worse than non-stream)
-- [ ] TTFA + RTF row on the scoreboard vs flow-latent and Kokoro rows
-- [ ] Adopt/shelve verdict: keep as lane or shelve with reason (if flow-latent dominates on both axes)
+1. **Both are FUSED VITS graphs** — in: `input` (phoneme ids i64 `[b,n]`), `input_lengths` i64 `[b]`, `scales` f32 `[3]` (noise_scale, length_scale, noise_w); out: audio f32 directly. **No mel intermediate** → decoder-level mel streaming is NOT possible with these artifacts.
+2. **True mel-level streaming** (PR #255, merged) requires **training-checkpoint re-export** (`piper_train.export_onnx_streaming` → encoder.onnx + decoder.onnx, flow moved to decoder, encoder RTF 0.01, chunk + padding CLI-tunable, padding trim at output). No mel-chunk constants were extracted: **phase B is gated on checkpoint availability** for a voice we care about — dropped unless phase A leaves headroom.
+3. **Chunk-level streaming is what the daemon actually needs**: `tts serve` streams text chunks (T013) as `SynthStream` frames — exactly what relay's kokoroWorker does today. Phase A = fused graphs + chunk-level synth through the seam. Phase B (mel streaming) only improves single-long-sentence latency.
+4. **Nondeterminism root-caused and fixed.** Same ids → different audio every run: the graphs embed **2× `RandomNormalLike` with no seed attr** (duration noise eps1, spectral noise eps2). Surgery (`eval/patch_piper_rng.py`): each `RandomNormalLike(X) -> O` becomes `O = Slice(noise_k, starts=0, ends=Shape(X), axes=[0,1,2], steps=1)` — caller-supplied seeded noise, scales wiring untouched. Ground-truth shapes (tapped from original graphs):
+   - **eps1 = [1, 2, T_text]** (duration noise; lane-exact from phoneme count)
+   - **eps2 = [1, 192, T_mel]** (192 bins on BOTH voices; T_mel is runtime-dynamic — durations depend on eps1 — hence the noise_1 budget=2048 + dynamic Slice)
+5. **Acceptance (patched `-rng` graphs)**: 3× byte-identical runs on both voices; different noise → different audio (seed dial works); rtf unchanged (0.075 vs 0.078 pre-patch). Patched graphs live next to originals (`*-rng.onnx`).
+
+Probe timings (python ORT 1.29, fused graph, mid-length chat line):
+
+| voice | phonemes | wall med | audio s | rtf |
+|---|---|---|---|---|
+| amy medium | 100 | 233 ms | 3.11 | **0.075** |
+| ryan high | 100 | 707 ms | 1.80 | 0.393 |
+| amy medium | 30 | 93 ms | 1.15 | 0.081 |
+
+ amy ≈ 10× faster than kokoro (0.80) and 4× faster than flow-candle (0.334). ryan still 2× faster than kokoro.
+
+## Phase A approach (this lane, session-2)
+
+- Lane name `piper`, gated `#[cfg(feature = "piper")]`, layout mirrors `graph-ort` (kokoro): ort 2.0.0-rc.15 api-21 session, `load_ms` = wall of `load()` only.
+- **Phonemization**: `espeak-rs` 0.2 (vendored espeak-ng C build; GPL-linking caveat documented like kokoro's espeak question). Map chars → ids via `phoneme_id_map` from the `.onnx.json`; port piper's id assembly (bos/pad/eos + separators) **verbatim from piper source** — two different assembly conventions exist for format 1.0.0 vs 0.2.0; keep per-format handling.
+- **Noise rng**: lane owns a seeded standard-normal rng (rand_distr / candle-equivalent); honors seam `--seed` structurally (eps1 exact, eps2 budgeted). Determinism class: `deterministic (given seed)`.
+- **Scales** from the voice json `inference` block (0.667/1.0/0.8 default).
+- **Chunk streaming**: T013 chunking → per-chunk phonemize + single ORT run → chunk released on completion; TTFA = first chunk's wall (expected ~100–250 ms chat-line).
+- **Byte-identity gate**: per (voice, scales, seed) triple through the eval harness, like every other lane.
+- **Header**: `lane: piper`, `quant: f32`, `chunk_policy: "text-chunks(T013)"`, speed field per the resident-service draft.
+
+## Phase B (optional, NOT this session)
+
+- Requires a piper **training checkpoint** for re-export via `export_onnx_streaming`; decoder chunk constants + overlap/add windowing to be ported from `piper_train/export_onnx_streaming.py` + `infer_onnx_streaming.py` if ever pursued. Drop-dir voices are checkpoint-less → **blocked on artifact availability, not on engineering**.
+
+## Done-conditions (phase A)
+
+- [ ] `tts synth --lane piper --model <dir>` e2e: phonemize→run→wav with correct 22050 Hz rate
+- [ ] Byte-identity gate PASS (lane, f32, chat-length + hard-80 rows)
+- [ ] TTFA + RTF + WER scoreboard row vs kokoro (t005a ref) and flow-latent rows
+- [ ] Adopt/shelve verdict (expected: adopt as the cheapest-CPU en_US lane given rtf 0.075)

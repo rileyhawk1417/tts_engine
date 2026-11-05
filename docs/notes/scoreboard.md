@@ -129,3 +129,57 @@ are dominated by normalization-judge disagreements on formatted text
 not just audio quality — same pattern as kokoro hard-80 42.03/49.62 but
 larger). Trusted verdict + M2 row needs the `TTS_XN_THREADS=1` rerun
 (seeded path, measured rtf 0.72 / identity PASS on 1t text).
+
+## 2026-11-05k — T009 close-out: M2 finished (hard-500 1t + parity battery)
+
+Trusted threads=1 hard-500 rerun: `eval/results/20261105-1540-flow-ptts-hard-t009-1t`
+— 500 rows, **493 pass / 7 FAIL identity** (verdict untrusted as measured;
+FAIL root cause below). WER stats unchanged vs default-threads.
+
+| hard-500 flow-ptts 1t | med | mean |
+|---|---|---|
+| WER / raw (all 500) | 40.00 | 56.98 |
+| WER / raw (493 pass) | 40.00 / 60.00 | 56.94 |
+| TTFA | 2226 ms | 2238 |
+| rtf | 1.054 | 1.099 |
+| peak RSS | 177 MB | — |
+
+**Identity FAIL root cause (both runs)**: NOT xn FP order — the ptts
+decode-batch **grain race**. Row 129: 57 vs 58 chunks across reps; the same
+sentence is 4-for-4 byte-identical standalone; FAIL rows are random across
+runs (7 ≠ 11, disjoint sets). Under load, drain timing shifts chunk
+boundaries → per-chunk voice restart changes bytes. WER/duration unaffected.
+Fail budget: 0 % (hard-80/1t, idle) · 1.4 % (hard-500/1t) · 2.2 % (500/8t).
+
+### M2 close-out scoreboard (hard-80, nemo judge, seed 42, 80/80 identity all)
+
+| lane (quant) | WER med | WER mean | rtf med | TTFA med | RSS max | identity |
+|---|---|---|---|---|---|---|
+| kokoro int8 ORT (t005a ref) | 25.00 | 42.03 | 0.80 | 4596 ms | ~457 MB | pass |
+| flow-ptts q8 1t | 46.43 | 64.24 | 1.163 | 2085 ms | 182 MB | 80/80 |
+| **flow-candle f32** | **42.86** | **60.28** | **0.334** | **352 ms** | 219 MB | 80/80 |
+
+Internal n=8 (nemo): candle 0.00/0.00/7.69/108.33/0/10/0/0 — 6 rows **exact
+match** with ptts t006, `address` outlier root-caused (candle verbalizes the
+address — norm-correct rendition; judge transcribed ptts's as digits; candle
+@seed7 → WER 0.00). Excl. address: candle 2.53 vs ptts 3.00 (Δ 0.47 pt).
+
+Parity battery: probe 48-step latents ≤ 1e-4; cross-lane PCM (candle-f32 vs
+ptts-q8): same plans/durations, rms|d| 0.0086 ("a.") / 0.029 (fox), med ≈ 0,
+p99 4.4 % / 11.6 %, max 0.145 / 0.54 — q8-vs-f32 weight delta amplified by
+Mimi; bounded, not hidden.
+
+**M2 verdict**: parity target MET (candle ≈ ptts WER everywhere except the
+explained outlier; better on hard-80 mean/median). TTFA target MET (352 ms,
+13× kokoro). WER-vs-kokoro on the hard corpus regresses for the flow-latent
+class (42.86 vs 25.00 med — both flow lanes, so model-class behavior, not a
+port artifact). Wall-RTF gap open (0.334 vs 0.80, ≈2.4× slower) → session-4
+(decode batching + gemm). **Kokoro stays default lane; flow-candle becomes
+the resident-latency lane.** M2 closed 2026-11-05.
+
+### Landmine found during close-out
+
+`eval/run.sh` rebuilt the binary with only `graph-ort,flow-ptts` → silent
+**feature strip** (flow-candle gone, 12.8 MB, mtime lies via hardlink
+relink). Fixed: run.sh now builds all three features on every invocation —
+the feature list is the only truth; size/mtime are not staleness signals.

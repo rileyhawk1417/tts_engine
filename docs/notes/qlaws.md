@@ -32,6 +32,11 @@ above 1 thread (chunk-level divergence, T006). Speed IS there (q8 8t: ~3.4×
 rtf, 890 ms TTFA cold) but rows can't pass byte-identity → nondet lanes are
 info-only until a fixed-partition/ordered-reduce knob exists in xn.
 
+**AMENDMENT (T009 close-out):** thread-count is not the only nondeterminism
+source — see L4 below (decode-batch grain race fires at ANY thread count
+under load). Threads=1 is necessary but not sufficient for long-text
+byte-identity.
+
 ## L4 — determinism scope (NEW LAW for this engine class)
 
 ptts determinism is **dial- and shape-local**: identical runs in the same
@@ -41,6 +46,19 @@ divergence at 73 KB) — worker-thread emission timing feeds the bounded-channel
 drain. Consequence: **identity gate must be re-run per (lane, quant, dial)
 triple**; it caught f32 being ungated-fast on first contact, which is the gate
 doing its job.
+
+**AMENDMENT (T009 close-out — grain race):** hard-500 FAILs at threads=1
+(493/7 in run 1540, random FAIL set across runs) are NOT xn FP order — they
+are the ptts decode-batch **grain race**: the drain timing shifts chunk
+boundaries → per-chunk voice restart changes bytes (row 129: 57 vs 58 chunks;
+4 standalone reps byte-identical on an idle box; WER + total duration
+unaffected — mean 56.94 vs 56.98 across the two hard-500 runs). Long multi-
+batch texts can FAIL identity at ANY thread count under load; short (≤1
+decode batch) texts are stable. The candle lane decodes inline (no channel)
+and passed identity everywhere (8/8 + 80/80 + all rep pairs). L4 gate law
+intensifies: the triple alone isn't enough for ptts-class long texts under
+load — verdicts on ptts rows should be stated with the FAIL budget measured
+(no FAILs = hard-80; ~1.4 % = hard-500/1t; ~2.2 % = hard-500/threads>1).
 
 ## L5 — first-stream init cost is amortizable (resident pool)
 
@@ -53,5 +71,15 @@ the TTFA story in the scoreboard, not a bug.
 ## Ledger status
 
 - [x] ≥4 hypotheses with verdicts (L1–L5)
-- [ ] Parity gate vs candle oracle — blocked behind T008 (candle port)
-- [ ] Default-lane decision: q8 flow-ptts is gate-certified; f32 flip pending L4 fix → kokoro remains default, re-confirm at M2 close.
+- [x] Parity gate vs candle oracle — **PROVEN (T009 close-out)**: probe
+      48-step latent parity (max |d| ≤ 1e-4) + lane WER battery (candle
+      hard-80 med 42.86 vs ptts 46.43, internal 7/8 within 0.5 pt with the
+      address outlier root-caused as seed drift + judge normalization) +
+      candle byte-identity 100 % across corpora/dials + cross-quant PCM
+      bound documented (rms 0.9–2.9 % q8-vs-f32, med 0).
+- [x] Default-lane decision — **re-confirmed at M2 close**: kokoro remains
+      default (throughput lane, rtf 0.80 / TTFA 4.6 s); flow-candle becomes
+      the resident-latency lane (TTFA 352 ms — 13× faster — but wall-RTF
+      0.334 ≈ 2.4× slower; session-4 target = decode batching + gemm to
+      close it). f32 flip still pending L4-class determinism inside candle
+      (not needed: candle is deterministic as-is).

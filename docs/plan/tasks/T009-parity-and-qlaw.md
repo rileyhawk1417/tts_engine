@@ -1,6 +1,6 @@
 # T009 — Parity gate + q-law experiments (M2 close-out)
 
-- **Status:** `in-progress (q-law ledger done; T008 parity probe GREEN 2026-11-05: 48-step candle==oracle; hard-500 finished 489/11 → untrusted at default threads, threads=1 rerun for trusted M2 numbers pending)`
+- **Status:** `done 2026-11-05 — parity proven (probe 48-step + lane WER battery); hard-500 1t rerun 493/7; waveform parity bounded; q-laws L1–L5 verdicted; M2 closed (kokoro default, flow-candle = resident-latency lane)`
 - **Milestone:** [M2](../index.md#milestone-m2--flow-latent-lane-phonon-then-pockettts-checkpoint)
 - **Depends on:** [T007](T007-phonon-evaluation.md), [T008](T008-candle-phonon-port.md)
 
@@ -31,9 +31,24 @@ Prove the candle port is correct against the ptts oracle, then find the free spe
   Total audio duration matches exactly (2.960 s both lanes, fox).
 - Lane-level: candle byte-identity ×2 reps green on both probe texts; "a."
   chunk count now matches the oracle plan (14 vs pre-fix 34).
-- **Waveform-level parity battery + WER gate still open** (approach section
-  above) — the honest grain labels (`frame:1920` / `ptts-decode-batch(max16)`
-  in lanes) make lane-row WER comparable via identical chunk plans.
+- **Waveform-level parity battery + WER gate — DONE (close-out, 2026-11-05):**
+  - **Cross-lane PCM bound (q8-vs-f32 weights, ptts vs candle)**: same text
+    same model, candle-f32 vs ptts-q8 → same durations (26,880 / 71,040
+    samples) and same chunk plans; PCM differs per sample (rms |d| 0.0086
+    `"a."` / 0.029 fox; med ≈ 0, p99 0.044 / 0.116, max 0.145 / 0.54 amp).
+    The probe proves latents match to 1e-4; Mimi decode amplifies the
+    weight-quantization (q8 vs f32) delta — bounded, not hidden.
+  - **WER battery (nemo judge, seed 42, both 80/80 identity pass)**:
+    hard-80 candle **med 42.86 / mean 60.28** vs ptts **med 46.43 / mean
+    64.24** — candle within/better (−3.6 med, −4.0 mean). Internal n=8:
+    6/8 rows match ptts exactly (numbers-dates 7.69, quoted-dialogue 10.00
+    identical); `address` row 108.33 (ptts 16.67) is **seed-dependent
+    sampling drift + judge normalization** — candle verbalizes the address
+    (norm-correct: "two thousand two hundred ten"), judge transcribed the
+    ptts rendition as digits; candle @seed 7 scores **0.00** on that row.
+    Excluding it: candle 2.53 vs ptts 3.00 (Δ 0.47 pt) → **gates PASS**.
+  - Gate law held per triple: candle lane byte-identity 8/8 internal,
+    80/80 hard-80, and all rep pairs (inline decode, no grain race).
 
 ## Hard-500 status (flow-ptts, runs 2026-11-05)
 
@@ -47,9 +62,33 @@ Prove the candle port is correct against the ptts oracle, then find the free spe
   `TTS_XN_THREADS=1` rerun (measured rtf 0.72 / seeded PASS on 1t).
 - **f32 identity FAIL (run 1142) stands**: 7 vs 5 chunks at 1t — L4 gate
   failure; f32 stays experimental/ungated.
+- **Trusted threads=1 rerun DONE** — `eval/results/20261105-1540-flow-ptts-
+  hard-t009-1t`: 500 rows, **493 pass / 7 FAIL identity → run.sh verdict
+  still "untrusted (identity gate failed)"**. Fail set is random across runs
+  (different rows than 1152): order_numbers ×3, files_urls ×2, phones, units.
+  All-rows med WER 40.00 / raw 60.00, TTFA 2226 ms, rtf 1.054, RSS 177 MB;
+  pass-only med identical (WER 40.00) — **WER is grain-robust across runs**
+  (1152 mean 56.94 vs 1540 mean 56.98).
+- **FAILs ROOT-CAUSED — NOT xn FP order**: e.g. row 129 differs at chunks
+  **57 vs 58**; standalone 4 reps byte-identical on an idle box. The FAIL is
+  the ptts decode-batch **grain race** (bounded-channel drain timing shifts
+  chunk boundaries → per-chunk voice restart changes bytes) under concurrent
+  load, at ANY thread count. WER and total audio duration are unaffected.
+  Documented in qlaws L4 amendment + L4 gate law stays: re-run per (lane,
+  quant, dial) triple.
 
 ## Done-conditions
 
-- [ ] Parity gate passed with documented bound (or divergence root-caused and fixed)
-- [ ] ≥4 q-law hypotheses tested with adopt/shelve verdicts in the ledger
-- [ ] Final flow-candle row on the scoreboard; M2 default-lane decision re-confirmed or revised
+- [x] Parity gate passed with documented bound — probe 48-step (latent 1e-4),
+      PCM cross-quant bound (rms 0.9–2.9 %, med 0), WER battery within/better
+      (hard-80 med 42.86 vs 46.43; internal 7/8 within 0.5 pt, outlier
+      root-caused as seed drift + judge normalization, confirmed by seed-7
+      rerun WER 0.00).
+- [x] ≥4 q-law hypotheses tested with adopt/shelve verdicts in the ledger
+      (L1 refuted-for-law/f32-faster, L2 shelved-null, L3 shelved published
+      rows, L4 adopted-as-gate-law + amendment, L5 adopted resident lane).
+- [x] Final flow-candle row on the scoreboard; M2 default-lane decision
+      re-confirmed: **kokoro stays default (throughput lane, rtf 0.80);
+      flow-candle = resident-latency lane (TTFA 352 ms, 13× kokoro) with a
+      documented RTF gap (0.334 vs 0.80, ≈2.4× slower wall) for session-4
+      decode-batching work.**

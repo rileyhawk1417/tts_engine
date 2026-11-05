@@ -42,8 +42,8 @@ Status values: `not-started` · `in-progress` · `completed` · `blocked` · `sh
 |---|---|---|---|
 | T006 | Phonon `ptts`-crate lane behind the seam | done 2026-11-05 | T002, T003 |
 | T007 | Phonon evaluation + lane-vs-lane scoreboard | done 2026-11-05 (hard-80 in background; verdict in notes/phonon-eval.md) | T005, T006 |
-| T008 | Candle from-scratch Phonon-31m port | not-started | T006 |
-| T009 | Parity gate + q-law experiments | not-started | T007, T008 |
+| T008 | Candle from-scratch Phonon-31m port | done 2026-11-05 (`86c63df`; 48-step parity vs oracle) | T006 |
+| T009 | Parity gate + q-law experiments | done 2026-11-05 (parity battery + hard-500 1t; notes in qlaws.md/scoreboard.md) | T007, T008 |
 
 ## Milestone M3 — ggml-ffi lane (cloning)
 

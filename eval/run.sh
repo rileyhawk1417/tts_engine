@@ -38,7 +38,9 @@ done
 [ -n "$LANE" ] && [ -n "$MODEL" ] || { echo "run.sh: --lane and --model required" >&2; exit 2; }
 
 TTS=target/release/tts
-[ -x "$TTS" ] || cargo build --release -q
+# lane features live behind cargo features (graph-ort now; more lanes land per task)
+[ -x "$TTS" ] || cargo build --release --features graph-ort -q
+cargo build --release --features graph-ort -q
 [ -x "$TE" ] || { echo "run.sh: judge binary missing: $TE (build te with TE_FEATURES=nemo)" >&2; exit 3; }
 TE_SHA16=$(sha256sum "$TE" | cut -c1-16)
 case "$JUDGE" in
@@ -46,11 +48,15 @@ case "$JUDGE" in
     parakeet)
         "$TE" transcribe --help 2>/dev/null | grep -q -- --gguf \
             || { echo "run.sh: judge parakeet needs te built with TE_FEATURES=parakeet" >&2; exit 3; }
-        TE_FLAG="--gguf"; JUDGE_ID="parakeet-q8_0 (te @${TE_SHA16})" ;;
+        TE_FLAG="--gguf tdt-0.6b-v2"  # q8_0 default quant per te
+        export TE_PARAKEET_LIB="${TE_PARAKEET_LIB:-/teranux/parakeet.cpp/build/libparakeet.so}"
+        JUDGE_ID="parakeet-q8_0 (te @${TE_SHA16})" ;;
     *) echo "run.sh: unknown judge '$JUDGE'" >&2; exit 2 ;;
 esac
 
-STAMP=$(date +%Y%m%d-%H%M)-${LANE}-${CORPUS}${TAG:+-$TAG}
+# corpus dir-name: bare stem for file corpora (no slashes in the stamp)
+CORPUS_NAME=$(basename "$CORPUS" .toml)
+STAMP=$(date +%Y%m%d-%H%M)-${LANE}-${CORPUS_NAME}${TAG:+-$TAG}
 OUT=eval/results/$STAMP
 mkdir -p "$OUT"
 
@@ -130,7 +136,7 @@ done
 N_PROC=$(($(wc -l < "$OUT/rows.tsv") - 1))
 
 # --- aggregate: results.json + scoreboard.md append ---------------------------
-python3 - "$OUT" "$LANE" "$MODEL" "$CORPUS" "$JUDGE_ID" "$SEED" <<'PY'
+python3 - "$OUT" "$LANE" "$MODEL" "$CORPUS_NAME" "$JUDGE_ID" "$SEED" <<'PY'
 import json, math, os, sys
 out_dir, lane, model, corpus, judge, seed = sys.argv[1:7]
 rows = []
@@ -140,10 +146,7 @@ with open(f"{out_dir}/rows.tsv") as f:
         vals = line.rstrip("\n").split("\t")
         r = dict(zip(header, vals))
         for k in ("wer", "raw_wer", "ttfa_ms", "rtf_final", "peak_rss_kb_max", "audio_s", "wall_ms"):
-            try:
-                r[k] = float(r[k])
-            except ValueError:
-                r[k] = None
+            r[k] = float(r[k]) if k in r and r[k] else None
         rows.append(r)
 
 def stat(vals, q=None):

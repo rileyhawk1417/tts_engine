@@ -68,6 +68,10 @@ enum Cmd {
         /// Allow explicit hub ids (first use downloads into the HF cache)
         #[arg(long)]
         allow_hf: bool,
+        /// Synthesize N times in-process (warm-pool measurement; rep 0 = cold,
+        /// the only rep that pays load). Outputs rep-indexed when N > 1.
+        #[arg(long)]
+        repeat: Option<u32>,
     },
 }
 
@@ -86,8 +90,19 @@ fn main() -> ExitCode {
             bench,
             seed,
             allow_hf,
+            repeat,
         } => run_synth(
-            lane, model, lang, voice, text, out, jsonl, bench, seed, allow_hf,
+            lane,
+            model,
+            lang,
+            voice,
+            text,
+            out,
+            jsonl,
+            bench,
+            seed,
+            allow_hf,
+            repeat.unwrap_or(1),
         ),
     }
 }
@@ -132,6 +147,7 @@ fn run_synth(
     bench: bool,
     seed_arg: Option<u64>,
     allow_hf: bool,
+    repeat: u32,
 ) -> ExitCode {
     // --- resolve text -------------------------------------------------------
     let text = match resolve_text(&text_arg) {
@@ -192,81 +208,111 @@ fn run_synth(
         lane_options: tts_engine::types::LaneOptions::default(),
     };
 
-    let synth_start = Instant::now();
-    let stream = match lane.synthesize(&req) {
-        Ok(s) => s,
-        Err(e) => return lane_exit(&e),
-    };
-    debug_assert_eq!(
-        stream.meta.load_ms, load_info.load_ms,
-        "lane meta must restate the load wall"
-    );
-
-    // --- telemetry sink -----------------------------------------------------
-    if bench && jsonl.is_some() {
-        eprintln!("note: --bench wins over --jsonl");
-    }
-    let sink: Box<dyn Write> = if bench {
-        Box::new(std::io::stdout().lock())
-    } else if let Some(p) = &jsonl {
-        match open_sink_file(p) {
-            Ok(f) => Box::new(f),
-            Err(e) => return io_fail(&format!("jsonl {:?}: {e}", p)),
-        }
-    } else {
-        Box::new(std::io::sink())
-    };
-
-    let run_id = format!("{}-{}", lane_name, epoch_secs());
-    let mut recorder = match RunRecorder::begin(
-        &stream.meta,
-        proc_start(),
-        synth_start,
-        sink,
-        run_id,
-        "not-assessed",
-    ) {
-        Ok(r) => r,
-        Err(e) => return io_fail(&e.to_string()),
-    };
-
-    let mut pcm_all: Vec<i16> = Vec::new();
-    for item in stream.chunks {
-        match item {
-            Ok(chunk) => {
-                if let Err(e) = recorder.on_chunk(&chunk) {
-                    return io_fail(&e.to_string());
-                }
-                pcm_all.extend_from_slice(&chunk.pcm);
-            }
+    for rep in 0..repeat {
+        let synth_start = Instant::now();
+        let stream = match lane.synthesize(&req) {
+            Ok(s) => s,
             Err(e) => return lane_exit(&e),
+        };
+        debug_assert_eq!(
+            stream.meta.load_ms, load_info.load_ms,
+            "lane meta must restate the load wall"
+        );
+
+        // --- telemetry sink -----------------------------------------------------
+        if bench && jsonl.is_some() {
+            eprintln!("note: --bench wins over --jsonl");
         }
-    }
-    let stats = match recorder.finish() {
-        Ok(s) => s,
-        Err(e) => return io_fail(&e.to_string()),
-    };
+        let suffix = if repeat > 1 {
+            format!(".rep{rep}")
+        } else {
+            String::new()
+        };
+        let out_rep = suffixed_path(&out, &suffix);
+        let jsonl_rep = jsonl.as_ref().map(|p| suffixed_path(p, &suffix));
 
-    // --- write wav ----------------------------------------------------------
-    if let Err(e) = wav::write_wav(&out, stream.meta.sample_rate, &pcm_all) {
-        return io_fail(&format!("write {:?}: {e}", out));
-    }
+        let sink: Box<dyn Write> = if bench {
+            Box::new(std::io::stdout().lock())
+        } else if let Some(p) = &jsonl_rep {
+            match open_sink_file(p) {
+                Ok(f) => Box::new(f),
+                Err(e) => return io_fail(&format!("jsonl {:?}: {e}", p)),
+            }
+        } else {
+            Box::new(std::io::sink())
+        };
 
-    // --- human summary on stderr (rows went to jsonl/stdout) ---------------
-    eprintln!(
-        "synth ok: lane={} model={} voice={} chunks={} audio={:.3}s wall={}ms rtf={:.3} ttfa={}ms peak_rss={}KB -> {}",
-        lane_name,
-        stream.meta.model,
-        stream.meta.voice,
-        stats.chunks,
-        stats.audio_seconds,
-        stats.wall_ms,
-        stats.rtf_final.unwrap_or(f64::NAN),
-        stats.ttfa_ms.unwrap_or(0),
-        stats.peak_rss_kb,
-        out.display(),
-    );
+        let run_id = if repeat > 1 {
+            format!("{}-{}-r{}", lane_name, epoch_secs(), rep)
+        } else {
+            format!("{}-{}", lane_name, epoch_secs())
+        };
+        let mut recorder = match RunRecorder::begin(
+            &stream.meta,
+            proc_start(),
+            synth_start,
+            sink,
+            run_id,
+            "not-assessed",
+        ) {
+            Ok(r) => r,
+            Err(e) => return io_fail(&e.to_string()),
+        };
+
+        let mut pcm_all: Vec<i16> = Vec::new();
+        for item in stream.chunks {
+            match item {
+                Ok(chunk) => {
+                    if let Err(e) = recorder.on_chunk(&chunk) {
+                        return io_fail(&e.to_string());
+                    }
+                    pcm_all.extend_from_slice(&chunk.pcm);
+                }
+                Err(e) => return lane_exit(&e),
+            }
+        }
+        let stats = match recorder.finish() {
+            Ok(s) => s,
+            Err(e) => return io_fail(&e.to_string()),
+        };
+
+        // --- write wav ----------------------------------------------------------
+        if let Err(e) = wav::write_wav(&out_rep, stream.meta.sample_rate, &pcm_all) {
+            return io_fail(&format!("write {:?}: {e}", out_rep));
+        }
+
+        // --- human summary on stderr (rows went to jsonl/stdout) ---------------
+        let rep_tag = if repeat > 1 {
+            format!(" rep={rep}")
+        } else {
+            String::new()
+        };
+        eprintln!(
+            "synth ok: lane={} model={} voice={} chunks={} audio={:.3}s wall={}ms rtf={:.3} ttfa={}ms peak_rss={}KB{} -> {}",
+            lane_name,
+            stream.meta.model,
+            stream.meta.voice,
+            stats.chunks,
+            stats.audio_seconds,
+            stats.wall_ms,
+            stats.rtf_final.unwrap_or(f64::NAN),
+            stats.ttfa_ms.unwrap_or(0),
+            stats.peak_rss_kb,
+            rep_tag,
+            out_rep.display(),
+        );
+    }
     ExitCode::SUCCESS
+}
+
+fn suffixed_path(p: &Path, suffix: &str) -> PathBuf {
+    if suffix.is_empty() {
+        return p.to_path_buf();
+    }
+    match p.extension() {
+        Some(ext) => p.with_extension(format!("{}{suffix}", ext.to_string_lossy())),
+        None => p.with_extension(suffix.trim_start_matches('.')),
+    }
 }
 
 fn resolve_text(arg: &str) -> std::io::Result<String> {

@@ -56,7 +56,7 @@ Status values: `not-started` · `in-progress` · `completed` · `blocked` · `sh
 | ID | Task | Status | Depends on |
 |---|---|---|---|
 | T011 | Piper streaming lane | not-started | T002, T003, T013 |
-| T012 | NeuTTS honest measurement experiment | not-started | T003 |
+| T012 | NeuTTS honest measurement experiment | done 2026-11-05 (backbone clears 50 Hz ≥2×; shelve as lane; see task file) | T003 |
 
 ## Critical path
 

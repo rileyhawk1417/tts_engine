@@ -13,7 +13,7 @@
 | **flow-latent** (M2, same lane) | shared flow-head + Mimi decoder module | `kyutai-labs/pocket-tts` — 100M + minis 18.2M/6.9M/1.9M, `languages/<lang>/model.safetensors` | CC-BY-4.0 (gated, prohibited-use clause) | per-language safetensors + per-voice embedding safetensors | Second checkpoint; multi-language + tiny-footprint variants |
 | **ggml-ffi** (M3) | FFI to `chatterbox.cpp` (C API) | Chatterbox Turbo EN (GPT-2-medium T3 + meanflow CFM + S3Gen + HiFT) | MIT (Resemble) + port MIT | GGUF: Q4_0 T3 + f16 S3Gen (their quant recipe) | Voice-cloning lane; ggml quantization testbed |
 | **streaming-graph** (M4) | ONNX streaming VITS | Piper (en_US voices) | MIT runtime; per-voice files | streaming split encoder/decoder, mel chunks + overlap-add | Streaming baseline competition for TTFA |
-| **measurement-only** (M4) | llama.cpp-style graph qwen2 + codec head | `neuphonic/neutts-air` Q4/Q8 GGUF | Apache-2.0 | qwen2-arch GGUF (~748 MB Q4_0) | Honest measurement or shelve; no default status |
+| **measurement-only** (M4, T012 done) | llama.cpp-class qwen2 + ONNX codec head | `neuphonic/neutts-air` Q4/Q8 GGUF | Apache-2.0 | qwen2-arch GGUF (~748 MB Q4_0) + official `neucodec-onnx-decoder(-int8)` (gated:auto) | **T012 verdict: backbone rate clears 50 Hz budget ≥2× on this hardware class; public 15×-slower is the Python stack; SHELVED as lane (3rd decode stack + gated artifacts; codec-voice-encode chain unmeasured)** |
 
 ## Parked (not targets)
 

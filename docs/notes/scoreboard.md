@@ -183,3 +183,29 @@ the resident-latency lane.** M2 closed 2026-11-05.
 **feature strip** (flow-candle gone, 12.8 MB, mtime lies via hardlink
 relink). Fixed: run.sh now builds all three features on every invocation —
 the feature list is the only truth; size/mtime are not staleness signals.
+
+## 2026-11-05m — T012 NeuTTS measurement: backbone clears budget, lane SHELVED
+
+Design corrections found on contact: NeuCodec is **50 tokens/s** (FSQ) not
+12.5 Hz; Neuphonic ships official **neucodec-onnx-decoder / -int8** (gated:auto)
+→ phase-2 integration = existing graph-ort machinery, not a custom export.
+
+Phase-1 rates (llama.cpp 0.7.0-dev, 4800H/16T Zen 2, fixed seed):
+
+| source | quant | gen t/s | vs 50 Hz | RSS |
+|---|---|---|---|---|
+| our box, ungated Qwen2-0.5B proxy (identical qwen2 path) | Q4_0 | 215–285 | 4.3–5.7× | 876 MB |
+| our box, same | Q8_0 | 229 | 4.6× | 1.05 GB |
+| authors, official neutts-air Q4_0 (llama-bench, HX 370) | Q4_0 | 119 | 2.4× | — |
+
+Decode is 1-core-effective at this size (user 0.93 s ≈ wall-gen; rate flat
+across -t 1..16). Load ≈ 1.3 s mmap vs community torch load 174.93 s.
+
+**Verdict**: CPU-realtime claim CORRECTED (backbone ≥2× budget on this class;
+public "15× slower" is the Python/transformers chain — load 174.93 s, voice
+encode 74.56 s). **Lane SHELVED**: 3rd decode stack (T010 already tests
+ggml/FFI), gated artifacts (no token on box → codec decode rate unmeasured),
+voice-encode chain has no ONNX artifact, flow-candle owns resident-latency,
+kokoro owns default. Numbers in T012 task file; targets.md row updated.
+
+Proxies: `~/models/t012-neutts/qwen2-0_5b-instruct-{q4_0,q8_0}.gguf`.

@@ -63,6 +63,7 @@ Status values: `not-started` · `in-progress` · `completed` · `blocked` · `sh
 | ID | Task | Status | Depends on |
 |---|---|---|---|
 | T014 | `tts serve` resident daemon | not-started (design note shipped; unblocked by T011 phase A — no session-4-speed dependency) | T002, T003, T013 |
+| T015 | pocket-tts second flow-candle checkpoint | in-progress (audit COMPLETE 2026-11-06; tokenizer unblocked via model repo; checkpoint staged) | T008, T009 |
 
 ## Critical path
 

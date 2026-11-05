@@ -1,0 +1,7 @@
+/target
+/out
+/weights
+/eval/data
+/eval/results
+/eval/out
+__pycache__/

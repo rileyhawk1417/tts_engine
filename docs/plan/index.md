@@ -25,7 +25,7 @@ Status values: `not-started` · `in-progress` · `completed` · `blocked` · `sh
 |---|---|---|---|
 | T001 | Seam + telemetry spec | completed | — |
 | T002 | Rust workspace scaffold + build gates | completed | T001 |
-| T003 | Round-trip WER eval harness | not-started | T002 |
+| T003 | Round-trip WER eval harness | completed | T002 |
 | T013 | Long-text chunking module | completed (landed with T002) | T002 |
 
 ## Milestone M1 — default lane (graph-ort / Kokoro)

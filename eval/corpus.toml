@@ -1,0 +1,47 @@
+# Internal eval corpus (T003) — smoke-tested sentences for the round-trip WER
+# harness. Judge is `te` (nemo int8, en); every sentence here must be a single
+# line (no tabs, no newlines). Keep id = [a-z0-9-]+.
+#
+# Provenance notes:
+# - WER normalization/math is `te`'s repo convention: eval/wer.py is a
+#   byte-identical copy of ../transcription_engine/scripts/wer.py
+#   (sha256 b15eb6f060004e78…); re-compare after any change.
+# - The gradium hard-sentences corpus lives separately (eval/import_hard.py,
+#   eval/data/hard-sentences-en.jsonl, gitignored).
+
+[meta]
+name = "internal-en"
+lang = "en"
+description = "Internal TTS stress: contractions, numbers/dates, addresses, punctuation, one long paragraph (chunking exercise)."
+
+[[sentence]]
+id = "greeting"
+text = "Hello, this is a smoke test of the speech engine."
+
+[[sentence]]
+id = "contraction-question"
+text = "Isn't it strange how quickly the weather changed this morning?"
+
+[[sentence]]
+id = "numbers-dates"
+text = "Route 47 leaves at 3:45 pm and arrives around 8:10 in the evening."
+
+[[sentence]]
+id = "address"
+text = "Send the package to 2210 Baker Street, apartment 9C, zip code 94117."
+
+[[sentence]]
+id = "compound-punct"
+text = "The plan sounded simple: measure first, compare honestly, and keep what wins."
+
+[[sentence]]
+id = "quoted-dialogue"
+text = "'Turn it down,' she said, 'before the neighbors call again.'"
+
+[[sentence]]
+id = "em-dash-list"
+text = "Bring three things — a map, a spare tire, and a little patience."
+
+[[sentence]]
+id = "long-paragraph"
+text = "The engine loads its weights straight from disk, maps them into memory, and starts speaking as soon as the first chunk is ready. Every stage of the pipeline reports timing: first the text is turned into tokens, then the acoustic model predicts features, and finally the vocoder renders waveforms. Numbers matter here — response time, memory use, and the ratio of real speech to wall clock. If a change does not measure better, it does not land. The scoreboard keeps everyone honest, because a claim without a number is just a story."

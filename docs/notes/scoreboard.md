@@ -94,6 +94,7 @@ notes/phonon-eval.md). PTEXT, q8, TTS_XN_THREADS=1 (seeded, byte-identity PASS):
 | flow-ptts warm (resident) | 392 ms | ~1.74 | beats kokoro rtf 2x at 1 thread |
 | kokoro int8 (gate ref) | 3118 ms | 0.84 | unchanged |
 
-f32 probe row (T009 candidate): TTFA 35-53 ms, ~5x rtf, deterministic, different
-audio (EOS one frame earlier).
+f32 row (T009): TTFA 53 ms probe / 252 ms lane, rtf 3.36, but FAILS
+byte-identity at threads=1 (nondet emissions) — ungated, experimental dial
+TTS_PTTS_QUANT=f32. Default stays q8.
 

@@ -34,7 +34,11 @@ fn main() {
     let cp = Checkpoint::resolve(
         std::path::Path::new(&dir),
         ptts::checkpoint::ResolveOptions {
-            quant: ptts::synth::Quant::Q80,
+            // argv[4]: "f32" | "q8" (default q8). f32 needs model.safetensors on disk.
+            quant: match std::env::args().nth(4).as_deref() {
+                Some("f32") => ptts::synth::Quant::F32,
+                _ => ptts::synth::Quant::Q80,
+            },
             weights: None,
         },
     )

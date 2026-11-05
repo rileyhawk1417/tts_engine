@@ -35,7 +35,7 @@ weights straight from disk." unless noted. Probe tools (kept in repo):
 | q8 1t cold (CLI/gate, single-shot) | ~3050 ms | 0.72 | seeded, byte-identity PASS |
 | q8 1t warm (resident lane) | 392 ms | ~1.74 | seeded (rep-identical) |
 | q8 8t cold (info only) | ~890 ms | ~3.1 | nondeterministic (xn rayon) |
-| f32 1t (probe, T009 candidate) | 35-53 ms | ~5× | deterministic, different audio |
+| f32 1t (T009, experimental) | 53 ms probe / 252 ms lane cold | 3.36 | NOT deterministic at 1t — ungated |
 | kokoro int8 ORT (T005 gate) | ~3118 ms | 0.84 | deterministic |
 
 Session primer: `session_default` primes voice in ~2-17 ms; primed TTFA 391 vs

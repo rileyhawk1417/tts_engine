@@ -47,6 +47,18 @@ use crate::types::{
 const LANE_QUANT: Quant = Quant::Q80;
 const QUANT_LABEL: &str = "q80";
 
+/// Experimental dial: `TTS_PTTS_QUANT=f32` resolves `model.safetensors`
+/// (f32 weights, ~99 MB) instead of the q8 gguf. Measured on Zen 2 (T009):
+/// TTFA 54 vs 393 ms, drain ~1.6x faster, same audio, deterministic at
+/// threads=1. Default stays q80 (gate baseline); f32 pending identity-gate
+/// certification before any default flip.
+fn lane_quant() -> Quant {
+    match std::env::var("TTS_PTTS_QUANT").as_deref() {
+        Ok("f32") => Quant::F32,
+        _ => LANE_QUANT,
+    }
+}
+
 struct FlowRuntime {
     synth: Synth,
     sample_rate: u32,
@@ -233,7 +245,7 @@ impl crate::types::TtsLane for FlowPttsLane {
         let cp = Checkpoint::resolve(
             dir.as_ref(),
             ResolveOptions {
-                quant: LANE_QUANT,
+                quant: lane_quant(),
                 weights: None,
             },
         )

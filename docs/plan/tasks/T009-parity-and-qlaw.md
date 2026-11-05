@@ -1,6 +1,6 @@
 # T009 — Parity gate + q-law experiments (M2 close-out)
 
-- **Status:** `not-started`
+- **Status:** `in-progress (q-law ledger done 2026-11-05; parity blocked behind T008)`
 - **Milestone:** [M2](../index.md#milestone-m2--flow-latent-lane-phonon-then-pockettts-checkpoint)
 - **Depends on:** [T007](T007-phonon-evaluation.md), [T008](T008-candle-phonon-port.md)
 

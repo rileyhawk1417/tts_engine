@@ -209,3 +209,13 @@ voice-encode chain has no ONNX artifact, flow-candle owns resident-latency,
 kokoro owns default. Numbers in T012 task file; targets.md row updated.
 
 Proxies: `~/models/t012-neutts/qwen2-0_5b-instruct-{q4_0,q8_0}.gguf`.
+
+**T012 upgrade — official artifacts measured** (`/teranux/hugging_face/hub`
+mount had `neutts-air-Q4_0.gguf` 527 MB + `neutts-nano-Q4_0.gguf` 195 MB,
+both qwen2-arch): air **217.4 t/s = 4.35× the 50 Hz budget**, RSS 1.07 GB,
+wall 3.01 s; nano **342.4 t/s = 6.8×**, RSS 744 MB. Proxy rows stand as
+corroboration. The Q4_0 file is 527 MB, not the 748 MB originally assumed.
+Codec-decode rate stays unmeasured (`neucodec-onnx-decoder` gated and absent
+from the mount; two torch-neucodec pip attempts blew the time-box — the
+1.16 GB neucodec pth IS on the mount for a later pass). Verdict unchanged:
+SHELVE as lane; claim corrected.

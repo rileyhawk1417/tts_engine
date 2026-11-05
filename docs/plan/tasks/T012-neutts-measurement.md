@@ -17,33 +17,35 @@ shape of the experiment:
    0.8 kbps, 24 kHz audio) — not the "12.5 Hz-class" guessed in the original
    plan. Budget to beat: **≥50 generated tokens/s sustained**.
 2. The "no codec decode artifact anywhere" assumption is OUTDATED: Neuphonic
-   now ships official **`neuphonic/neucodec-onnx-decoder`** (f32) and
-   **`neucodec-onnx-decoder-int8`** — an on-device decoder artifact. Phase-2
+   ships official **`neuphonic/neucodec-onnx-decoder`** (f32) and
+   **`neucodec-onnx-decoder-int8`** — on-device decoder artifacts. Phase-2
    effort is therefore OUR EXISTING `graph-ort` machinery, not a custom ONNX
-   export. (Both repos HF `gated: auto` — need a token with conditions
-   accepted; none on this box → decode rate left UNMEASURED.)
+   export. (Both repos HF `gated: auto`, absent from the local mount →
+   decode rate left UNMEASURED: two pip-install attempts of the torch
+   `neucodec` package each blew the time-box with no landing — recorded,
+   not retried. The 1.16 GB `neucodec` pth IS on the mount if a later pass
+   wants the torch-CPU codec number.)
 
 ### Phase-1 measurements (2026-11-05, Zen 2 4800H/16T, llama.cpp 0.7.0-dev)
 
-Official NeuTTS GGUFs are HF-gated (401 without token) → measured the
-identical compute path with the ungated Qwen2-0.5B-Instruct GGUF (same
-qwen2 arch the official artifact declares), plus the authors' own number on
-the official file:
+**Official artifacts measured directly** — `neutts-air-Q4_0.gguf` (527 MB,
+NOT the 748 MB originally assumed) + `neutts-nano-Q4_0.gguf` (195 MB) came
+from the local `/teranux/hugging_face/hub` mount; ungated Qwen2-0.5B GGUFs
+used as same-arch corroboration. Same fixed prompt + seed 42 throughout:
 
-| source | artifact | gen rate | vs 50 Hz budget | RSS |
-|---|---|---|---|---|
-| our box, Qwen2-0.5B Q4_0 proxy, llama.cpp | ungated | **215–285 t/s** (prompt-dependent ±15%) | **4.3–5.7×** | 876 MB |
-| our box, Qwen2-0.5B Q8_0 proxy | ungated | **229 t/s** | **4.6×** | 1.05 GB |
-| authors, official neutts-air Q4_0, llama-bench, Ryzen HX 370 | official | **119 t/s** (500p + 250g) | **2.4×** | — |
+| source | artifact | size | gen rate | vs 50 Hz budget | RSS |
+|---|---|---|---|---|---|
+| **our box, OFFICIAL neutts-air Q4_0** | official | 527 MB | **217.4 t/s** | **4.35×** | 1.07 GB |
+| **our box, OFFICIAL neutts-nano Q4_0** | official | 195 MB | **342.4 t/s** | **6.8×** | 744 MB |
+| our box, Qwen2-0.5B Q4_0 proxy | ungated | 353 MB | 215–285 t/s | 4.3–5.7× | 876 MB |
+| our box, Qwen2-0.5B Q8_0 proxy | ungated | 531 MB | 229 t/s | 4.6× | 1.05 GB |
+| authors, llama-bench, Ryzen HX 370, official Q4_0 | official | — | 119 t/s | 2.4× | — |
 
-- Effective decode was **single-core** in this build (user≈0.93 s vs wall
-  2.15 s; rate did not change across `-t 1..16`) — 0.5B q4_0 is too small to
-  fan out per-token; the rate is a 1-core floor, not a ceiling.
-- Load wall ~1.3 s (mmap, 353 MB file) vs community torch load **174.93 s**
-  — the 3-minute community load is the Python stack, not a GGUF property.
-- Scale caveat: official Q4_0 file is 748 MB ≈ 2.1× our 353 MB proxy (bigger
-  vocab/embeddings or heavier backbone) → scale our rate down ≈2× → ≥2×
-  headroom, consistent with the authors' 119 t/s on the real file.
+- Decode stays 1-core-effective at this size (user 1.55 s vs wall 3.01 s on
+  air; rate flat across `-t 1..16`) — the rates are 1-core floors, not
+  ceilings. Load wall: air 3.01 s incl. 250 tokens (net ≈1.9 s), mmap.
+- Bigger official file does NOT halve the rate vs proxy: the size difference
+  is mostly embedding/vocab (memory, not per-token flops).
 
 ### Community numbers this settles (HF discussion #6, 2025-10)
 
@@ -54,8 +56,7 @@ backbone-in-transformers + codec/voice-encode on torch CPU.
 
 ## Verdict: SHELVE as a lane (measurement complete)
 
-- **CPU-realtime claim: CORRECTED, not confirmed** — with a llama.cpp-class
-  backbone path the 50 Hz budget clears ≥2× on this hardware class; the
+- **CPU-realtime claim: CORRECTED, not confirmed** — with a llama.cpp-class backbone path the 50 Hz budget clears ≥4.3× on this box (official artifact measured directly); the
   public 15×-slower datapoint is a Python-stack artifact. A C path (ggmi FFI
   + ORT int8 ONNX codec decode) is architecturally capable of ≥2× realtime
   here. The claim is refuted on OUR terms (rate measured), honest numbers

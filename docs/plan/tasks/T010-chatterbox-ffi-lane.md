@@ -1,6 +1,6 @@
 # T010 — chatterbox.cpp FFI lane (ggml-ffi)
 
-- **Status:** `in-progress` (layer-A preflight DONE 2026-11-05; layer B = FFI crate + Rust lane next)
+- **Status:** `done` (2026-11-06: layer A + layer B complete; hard-80 **80/80 identity pass, verdict trusted**, WER med 60.00 / mean 67.54 — see `docs/notes/scoreboard.md` §2026-11-06; verdict **ADOPT as the board's voice-cloning lane, not a default-TTS quality contender**) — [M3 CLOSED](../index.md)
 - **Milestone:** [M3](../index.md#milestone-m3--ggml-ffi-lane-cloning)
 - **Depends on:** [T002](T002-workspace-scaffold.md), [T003](T003-roundtrip-eval-harness.md)
 
@@ -20,9 +20,46 @@ Voice cloning capability via the mature ggml port: `gianni-cor/chatterbox.cpp` (
 
 ## Done-conditions
 
-- [ ] `tts synth --lane ggml-ffi --voice <cloned> ...` yields recognized speech from a reference-WAV clone (round-trip WER reported)
+- [x] `tts synth --lane ggml-ffi --voice <cloned> ...` yields recognized speech from a reference-WAV clone (round-trip WER reported) — **met 2026-11-06**: `--voice /tmp/t011-long.wav` (18.99 s piper reference) → nemo-int8 transcript verbatim ("Hello from the Chatterbox native clone running inside the seam."), 2× byte-identical across invocations
 - [x] C-API (or subprocess) decision recorded with evidence in targets.md verify-list — **decision 2026-11-05: llama.cpp FFI via own C++ shim (no subprocess needed); gianni-cor swap recorded**
 - [x] Cold-load wall + peak RSS logged (llama-tts baseline: cold load ≈ 0.6 s, peak RSS 2.4 GB); determinism verified at CLI level (3× byte-identical per dial for both default and cloned voice)
+
+### Hard-80 battery (2026-11-06, `eval/results/20261106-0033-ggml-ffi-hard-t010-cbx-t4/`)
+
+`--corpus hard --limit 80`, t4, seed 42, judge nemo-int8 `te @38b3d623`:
+**80/80 identity pass → trusted.** WER med 60.00 / mean 67.54 (raw med
+80.0); TTFA med 8344 / p95 9725 ms; seam rtf (audio/wall) med 0.406; peak
+RSS max 2,494,480 KB. Last place on the same-judge hard-80 board (ryan
+22.50 ≪ amy 40.00 < candle 42.86 < ptts 46.43 ≪ 60.0) — expressive T3
+sampling over whisper-derived semantic tokens; adoption case is cloning,
+not quality. **Hard-500 not run**: llama-class fixed per-dial reduction
+order + per-chunk KV resets keep grain-race risk low and the adoption case
+(cloning) does not hinge on hard-500; if a cloning voice becomes a
+production path, gate it at hard-500 then.
+
+## Verdict (M3)
+
+**ADOPT as the board's voice-cloning lane — the only lane that clones**;
+not a default-TTS quality contender. Speed mid-pack
+(audio/wall 0.406). RSS ≈ 2.4 GB = CLI-scale, not T014-resident-scale
+(deviation recorded in the T014 contract). en-US default-lane question
+unaffected: piper ryan remains the answer.
+
+## Layer-B log (2026-11-06, session-4)
+
+**Vehicle, final:** in-process FFI — own `extern "C"` shim (`crates/tts-engine/src/shim/chatterbox_shim.cpp`) built by `build.rs` (`cc`, C++17, `-DGGML_USE_CPU`, 7 include dirs) and linked against the durable pinned llama.cpp static archives at `/teranux/third_party/llama.cpp` (HEAD `186eab1c…`; `libmtmd`, `libllama-common`, `libllama-common-base` [build-info symbols live here — found by link failure], `libllama`, `libggml*`, `libvendor-hash`; system `gomp,numa,m,dl,pthread`). The shim binds `mtmd_helper_gen_audio_*` (already `extern "C"`) directly plus `common_init_from_params` (C++-mangled) — no re-wrap of the C++ orchestration.
+
+**Shim surface** (`tts_cbx_*`): `init(threads,n_batch,n_predict_cap)` / `ok` / `set_speaker_wav` / `reset_speaker` / `sample_rate` / `n_voices` / `voice_name` / `synthesize(text,seed,top_k,top_p,min_p,temp,penalty_repeat → wav_buffer,samples,frames,prompt_s,gen_s,wav_s)` / `last_error` / `free`. Pins mirror llama-tts: `embedding=true`, top_k 40 / top_p 0.95 / min_p 0.05 / temp 0.80 / penalty_repeat 1.0, n_batch 2048, frames cap 512, `mtmd_params.device = nullptr` (ggml_backend_dev_t, NOT ""). Clocks prompt/gen/vocoder via `ggml_time_us()`.
+
+**API drift fixed** (llama.cpp `186eab1`): `common_params` has NO `n_threads` — use `params.cpuparams.n_threads` + `cpuparams_batch.n_threads`; `mtmd_context_params.device` = `nullptr`.
+
+**Lane** (`crates/tts-engine/src/lanes/ggml_ffi.rs`): mirror of piper.rs structure; `GgmlFfiLane` + `TtsCbxSession` wrapper (`CbxHandle` Send newtype, single worker thread); model-only `ModelRef::Path` (Hub/Pseudo rejected); `resolve_mmproj` twin next to the backbone or explicit `mmproj` lane option; `resolve_dials` returns `CbxDials{top_k,top_p,min_p,temp,penalty_repeat,max_frames}` (unknown dial / out-of-range = hard error — seam law); per-call voice resolution: `VoiceRef::Path` → `tts_cbx_set_speaker_wav`, `Default`/`Id` → `tts_cbx_reset_speaker` (sticky-voice law, verified); `restart_voice: false`; determinism `Seeded` with live seed; TTS_CBX_THREADS dial default 4. **6 unit tests** (dial law, overrides, hard errors, mmproj probe). Feature `ggml-ffi`; probe example `ggml_ffi_lane_probe` (3× shipped identity + optional clone 2× + post-clone shipped-restore check + RunMeta stability + stage/TTFA dump + rep0 wav for WER).
+
+**Probe gates (GREEN)**: 3× byte-identical shipped at seed 42 (pcm_sha `507c9ea1…`, cross-process stable vs CLI run), cloned 2× (`bef82bf9…`), shipped voice restored after cloning (no sticky speaker), RunMeta stable across reps; stages acoustic 3.8–4.1 s + vocoder 5.2–5.3 s, TTFA ≈ 9.1–9.4 s (cold-ish), audio 4.24 s, rtf(audio/wall) ≈ 0.45–0.47 — matches llama-tts CLI baseline. Round-trip WER (probe rep0, te nemo-int8): **verbatim**.
+
+**Seam CLI e2e (GREEN)**: `tts synth --lane ggml-ffi …` — telemetry rows complete (header `determinism:seeded`, chunk stages g2p 0 / acoustic / vocoder / io 0, peak_rss ≈ 2.43–2.45 ×10⁶ KB — the **RSS deviation for T014**: 2.4 GB ≫ 300 MB/lane warm budget); two same-seed CLI runs byte-identical; **thread dial diverges through the seam (t8 ≠ t4) as expected**; T013 long text → 4 chunks, 11.4 s audio, wall 30.4 s, TTFA 7.6 s, rtf 0.375, cross-run byte-identical; long-run round-trip transcript legible (pangram ASR noise only).
+
+**build.sh/run.sh feature lists extended to FIVE features** (`graph-ort,flow-ptts,flow-candle,piper,ggml-ffi`); full workspace gate OK (fmt + clippy -D warnings + 45 tests + [smoke, kokoro, flow-ptts] e2e identities). Release binary 32.6 MB (llama static ≈ +14 MB over the four-lane 18.4 MB).
 
 ## Layer-A log (2026-11-05)
 

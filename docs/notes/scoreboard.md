@@ -276,3 +276,39 @@ voice). Kokoro stays the board's default-lane reference (same-judge
 caveat + non-en voices); re-run kokoro on `38b3d623` if the en_US default
 switch is ever adjudicated. Phase B (mel streaming) remains blocked on
 checkpoint artifacts, not engineering.
+
+## 2026-11-06 — T010 ggml-ffi (chatterbox) lane: hard-80 trusted, cloning capability adopted
+
+`lanes/ggml_ffi.rs` + `src/shim/chatterbox_shim.cpp` (llama.cpp
+`mtmd_helper::gen_audio` in-process; pinned `186eab1`), Chatterbox Turbo
+Q8_0 gguf, shipped voice ("Boba", bundled conds.pt), `TTS_CBX_THREADS=4`,
+release, seed 42, nemo-int8 judge `te @38b3d623` (same judge sha as the
+piper table above):
+
+| voice | corpus | n | identity | WER med | WER mean | TTFA med/p95 ms | seam rtf (audio/wall) | RSS max |
+|---|---|---|---|---|---|---|---|---|
+| chatterbox turbo default | hard | 80 | **80/80 pass** | 60.00 | 67.54 | 8344/9725 | 0.406 | 2,494,480 KB |
+
+Same-judge-sha (`38b3d623`) side-by-side, hard-80 slice: ryan 22.50 (500-run
+slice) ≪ amy 40.00 (slice) < flow-candle 42.86 < flow-ptts 46.43 (idle
+budget) ≪ **chatterbox 60.00 — last place on the WER board**. Expressive
+T3 sampling over whisper-derived semantic tokens reads poorly on the
+adversarial hard corpus; this is the shipped-voice baseline, not a tuned
+one. Speed is mid-pack (audio/wall 0.406: ≈2× slower than kokoro 0.80,
+faster than flow-candle 0.334). RSS ≈ 2.4 GB peak = the T014-resident
+deviation (≈8× the ≤300 MB/lane warm budget; lane stays CLI/serve-own-rule).
+
+Verdict (M3): **ADOPT as the board's voice-cloning lane (the only one);
+NOT a default-TTS quality contender.** Cloning done-condition met through
+the CLI: `--voice <wav>` (18.99 s piper reference) → verbatim round-trip
+WER (nemo-int8), 2× byte-identical across invocations under concurrent
+eval load. Probe gates: 3× shipped identity (sha `507c9ea1…`, stable across
+probe and CLI processes), 2× clone identity, shipped-voice restore after
+clone (no sticky speaker), thread dial t8 ≠ t4 (expected). Cloned runs
+include the speaker preproc inside the prompt stage (wall 8–18 s for a
+4-s sentence depending on contention). **Hard-500 NOT run:** ≈3.5 h at
+~30 s/row; hard-80 is 80/80 and the adoption case (cloning) does not hinge
+on hard-500; if the cloning voice ever becomes a production path, run
+hard-500 then (the ptts-class FAIL-budget amendment applies only to ptts
+rows; llama-class reduction order is fixed per thread dial and per-chunk
+KV resets make cross-row state impossible).

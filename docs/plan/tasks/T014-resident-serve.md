@@ -50,7 +50,9 @@ throughput headroom, decided separately.
 5. Resource hooks: `--idle-unload` + reset counter, `--nice`, thread dials
    targeting the CPU cap (relay container = 3.5 CPU / 2 GB), ≤ ~300 MB
    warm-resident per active lane target (kokoro int8 ~457 MB = pair with
-   idle-unload or trim).
+   idle-unload or trim). **T010 ggml-ffi deviation: peak ≈ 2.4 GB (weights
+   1.03 GB + KV + compute buffers) — the lane cannot live under this target;
+   if served, it needs its own headroom rule or stays CLI-only.**
 6. Relay-bench TTS phase (separate harness work): measure the DAEMON
    in-container, warm, worker-loop=1, vs `kokoroWorker` on the same lines.
    CLI cold numbers overstate the win by the load term — never quote them.

@@ -126,3 +126,35 @@ round-trips we verified), documented in the lane contract block.
    `ggml_ffi_lane_probe` example, byte-identity battery, hard-80 + hard-500
    via eval/run.sh, round-trip WER, scoreboard row.
 7. Regression check: full-four-feature build + existing lanes' e2e (build.sh).
+
+## Layer-B delivered (2026-11-06, session-4)
+
+All seven plan items landed; full log in the task file's Layer-B log. Key
+facts beyond the plan:
+
+- **Shim**: `src/shim/chatterbox_shim.cpp` — `tts_cbx_*` C ABI (init/ok/
+  set_speaker_wav/reset_speaker/sample_rate/n_voices/voice_name/synthesize/
+  last_error/free). `reset_speaker` restores the shipped voice bitmap via
+  `mtmd_gen_audio_get_voice`, closing the sticky-voice hazard (cloning ref
+  must never leak across resident-process requests).
+- **Link glue**: `build.rs` `ggml_ffi_shim()` — cc C++17 + 8 static archives
+  from `LLAMA_CPP_DIR` (default `/teranux/third_party/llama.cpp`), including
+  `libllama-common-base.a` (build-info symbols: `llama_build_target` etc.
+  live in build-info.cpp.o — first link failure was missing it).
+- **API drift vs pinned HEAD `186eab1`**: threads under `cpuparams`/
+  `cpuparams_batch` (no `n_threads` members), `mtmd_context_params.device`
+  = `nullptr` (ggml_backend_dev_t).
+- **Dial table** (lane options, hard errors on unknown/out-of-range):
+  `top-k`, `top-p`, `min-p`, `temp`, `penalty-repeat`, `max-frames` (init
+  cap), `threads` via `TTS_CBX_THREADS` env (default 4).
+- **Identity through the seam**: probe 3× shipped (sha `507c9ea1…`, stable
+  across probe AND separate CLI runs), clone 2×, shipped-restore after
+  clone. Thread dial t8 ≠ t4 through the seam as designed.
+- **Stages**: g2p always 0 (no phonemizer); acoustic = semantic + frame-gen
+  (3.8–4.1 s per short sentence); vocoder = hift (5.2–5.3 s); io ≈ 0.
+  TTFA = full chunk (stream delivers whole-chunk PCM; mid-streaming is a
+  later optimization, note `mtmd-helper` has no frame-level out yet).
+- **RSS deviation**: peak ≈ 2.43–2.46 ×10⁶ KB through the seam (weights
+  1.03 GB + KV + compute) — ≫ T014's ≤300 MB warm-resident budget; recorded
+  in the task file for the T014 contract.
+- **Feature lists extended to FIVE** in `eval/run.sh` + `scripts/build.sh`

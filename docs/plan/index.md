@@ -8,7 +8,7 @@
 
 Model-agnostic, CPU-first TTS engine in Rust. One seam — `tts synth {text, lang, voice, lane} → WAV/PCM + chunks.jsonl` — over many lanes. Weights load off disk (mmap-first). Every run emits telemetry (per-stage ms, TTFA, RTF, peak RSS). Every lane is judged by round-trip WER via `transcription_engine`. Honest-numbers discipline inherited from `te`: measure first, adopt with proof, falsify and shelve otherwise.
 
-**Build targets:** see [targets.md](targets.md). Six mapped engines, four active lanes (graph-ort, flow-latent, ggml-ffi, streaming-graph), one measurement-only lane, two parked engines.
+**Build targets:** see [targets.md](targets.md). Six mapped engines, four active shipped lanes (graph-ort, flow-latent ×2, piper, ggml-ffi) + one measurement-only lane (shelved), two parked engines; ggml-ffi adopted as the cloning lane only (M3 close, 2026-11-06).
 
 ## How to work
 
@@ -45,11 +45,11 @@ Status values: `not-started` · `in-progress` · `completed` · `blocked` · `sh
 | T008 | Candle from-scratch Phonon-31m port | done 2026-11-05 (`86c63df`; 48-step parity vs oracle) | T006 |
 | T009 | Parity gate + q-law experiments | done 2026-11-05 (parity battery + hard-500 1t; notes in qlaws.md/scoreboard.md) | T007, T008 |
 
-## Milestone M3 — ggml-ffi lane (cloning)
+## Milestone M3 — ggml-ffi lane (cloning)  **(CLOSED 2026-11-06: T010 adopted as the cloning lane** — llama.cpp `mtmd_helper::gen_audio` behind an own C++ shim; hard-80 80/80 identity trusted; WER med 60.0 = not a quality contender; ≈2.4 GB RSS = CLI-scale)**
 
 | ID | Task | Status | Depends on |
 |---|---|---|---|
-| T010 | chatterbox.cpp FFI lane | in-progress (layer-A preflight done — retargeted to llama.cpp tools/tts, see targets.md) | T002, T003 |
+| T010 | chatterbox.cpp FFI lane | **done** (M3 closed 2026-11-06 — llama.cpp FFI shim + lane, hard-80 80/80 identity trusted, cloned-voice done-condition met; verdict: ADOPT as cloning lane, not a quality contender; see notes/scoreboard.md §2026-11-06) | T002, T003 |
 
 ## Milestone M4 — streaming + measurement lanes  **(CLOSED 2026-11-05: T011 phase A adopted, T012 shelved as lane)**
 
@@ -71,7 +71,7 @@ both can run while anything else is in flight.
 
 ## Open questions
 
-- **en_US default lane**: piper ryan (WER med 20.00 hard-500, wall/audio ≈ 0.268, same judge as flow rows) measured ≥ kokoro on every axis, but the kokoro comparison is cross-judge-sha (`cdb5b135` vs `38b3d623`) — re-run kokoro on the current judge before any default-LANE switch, or accept the approximate comparison and switch. Unresolved by design until there's a reason to adjudicate.
+- **en_US default lane**: piper ryan (WER med 20.00 hard-500, wall/audio ≈ 0.268, same judge as flow rows) measured ≥ kokoro on every axis, but the kokoro comparison is cross-judge-sha (`cdb5b135` vs `38b3d623`) — re-run kokoro on the current judge before any default-LANE switch, or accept the approximate comparison and switch. Unresolved by design until there's a reason to adjudicate. **Chatterbox (T010) does not enter this question: 60.0 WER med hard-80, last place on the same-judge board; adopted as the cloning lane only.**
 - ~~G2P for the Kokoro lane: espeak-ng (GPL-linking caveat) vs misaki~~ — **resolved 2026-11-05 (T004)**: espeak-ng subprocess (the misaki espeak-fallback materialization), phonemizer-style punctuation restore; caveat documented in the lane.
 - ~~Streaming IPC shape for the seam~~ — **resolved 2026-11-05** in [notes/resident-service.md](../notes/resident-service.md): HTTP/1.1 over UDS + NDJSON chunk frames, worker-loop=1, one binary two modes. Landed as board task **T014 (M5)**; piper phase A removed the session-4-speed dependency.
 - ~~Which `te` lane is the default round-trip judge~~ — **resolved 2026-11-05 (T005)**: nemo int8 default (literal-text transcriptions win on the hard set), parakeet q8_0 tiebreak; judge sha recorded per run.

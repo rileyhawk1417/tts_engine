@@ -102,8 +102,12 @@ Decided direction:
   protocol there first; it is the smallest honest vehicle for it.
 - Candidate new task (M4): **T014 resident-service lane (`tts serve`)** — deps T002/T013;
   done-conditions: harmony gate green, resource table hooks landed, relay-bench rows
-  measured. **Sequence after session-4 speed**: flow-candle wall (rtf 0.334 vs kokoro
-  0.80) would back up relay's FIFO queue today; throughput first, residency second.
+  measured. ~~Sequence after session-4 speed~~ **Amended 2026-11-05**: piper phase A
+  (rtf 0.075, warm TTFA ≈ synth wall 90–250 ms, seeded/stable outputs) removes the
+  dependency — serve can ship on kokoro + piper warm lanes without any decode-speed
+  work; session-4 speed (candle batching/gemm) becomes throughput headroom, not a
+  prerequisite. Original throughput concern (flow-candle 0.334 backing up a FIFO
+  queue) applies only if piper falls through.
 - **relay-bench TTS phase (when built) must measure the daemon**, not the CLI: in-container
   (3.5 CPU / 2 GB cap), warm, worker-loop=1, versus the `kokoroWorker` pipeline on the
   same lines (chat text, links/emoji paths, speaker prefix). CLI cold numbers would

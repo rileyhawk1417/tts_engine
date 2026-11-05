@@ -1,0 +1,77 @@
+# Piper lane groundwork notes (T011 session-1.5 findings)
+
+Collected 2026-11-05, ahead of the session-2 (`piper` feature) build. Facts verified
+against upstream the day they were needed, not from memory.
+
+## Phonemizer: espeak-rs status and role
+
+- Crate `espeak-rs` 0.2.0 lives inside `thewh1teagle/piper-rs` (`crates/espeak-rs` +
+  `crates/espeak-rs-sys`). Repo **not archived** (GitHub API: pushed 2026-05-21).
+  The standalone `thewh1teagle/espeak-rs` repo 404s — folded into piper-rs; that is
+  likely the "archived" impression. MIT wrapper.
+- Dep hygiene: `espeak-rs` depends on exactly `espeak-rs-sys` (bindgen + cmake + glob).
+  **No `ort` coupling** — piper-rs's pinned `ort =2.0.0-rc.12` never reaches us.
+- Architecture: NOT a subprocess. Builds vendored espeak-ng via cmake in-tree, links in-process.
+  Runtime provisioning: one `espeak-ng-data` directory (few MB).
+- License: espeak-ng GPLv3 → GPL-linking caveat; same class as kokoro's espeak question.
+  Alternatives if it ever matters: `espeak-ng-rs` (eugenehp) pure-Rust port, updated
+  2026-09-05, fidelity + license unverified (experiment class); phonemizer sidecar
+  subprocess (licensing-clean, slight IPC cost).
+
+## G2P is not a perf surface (measured, don't relitinigate)
+
+System espeak-ng 1.52.0, warm in-process calls (ctypes), 20 sentences × 10 reps:
+
+| route | per-sentence cost | one-time |
+|---|---|---|
+| in-process lib call (warm) | **0.070 ms med / 0.135 ms max** | 15.4 ms init |
+| CLI one-shot (process + data load) | 10.0 ms | — |
+| reference: amy VITS wall per chunk (rtf 0.075) | 233 ms | — |
+
+- Throughput ~54 kchar/s → >1,400 sentences/s of G2P budget.
+- **G2P share of the VITS wall: 0.03%** (even the dumb CLI architecture is ~4%).
+- Rule-based G2P: no gemm/thread/quant/session dials. The optimization campaigns on
+  this repo (ptts, candle, kokoro, neutts) were all neural-decode stages; G2P is not
+  that class. Verdict: phonemizer work = **build integration + licensing + correctness
+  (id assembly)**, never speed.
+- API fact: system share-lib 1.52.0 exports only `espeak_TextToPhonemes` (3-arg);
+  `espeak_TextToPhonemesWithTerminator` is NOT in the shared-build export table.
+  Verify in the vendored build; T013 chunking already splits clauses at the text layer,
+  so terminator granularity is a nicety, not a dependency.
+
+## Three determinism lineages (why our surgery exists)
+
+| lineage | noise source | determinism | seed variety |
+|---|---|---|---|
+| stock fused graphs (shipped voices) | 2× unseeded `RandomNormalLike` | none — differs every run | random |
+| our surgery (noise-input Slice) | caller's seeded rng | byte-identical per seed (proven 3×) | full dial |
+| streaming lineage (PR #255) | `torch.manual_seed(1234)`, randn traced to constants | deterministic by bake | **frozen forever** |
+
+- piper itself cannot make byte-identical audio; the streaming lineage is deterministic
+  but locks voice character per export. Our noise-input surgery is strictly friendlier
+  for eval (gate law) and product (seed is a live dial).
+- Streaming lineage mechanics (from `infer_onnx_streaming.py`, fetched 2026-11-05):
+  encoder runs once per utterance; decoder chunks of **45 mel frames** (hop 256 →
+  0.523 s @ 22050), **chunk_padding CLI default 5 frames/side** (class docstring says
+  10 — discrepancy preserved), **pad-and-TRIM** (`audio[start_pad:-end_pad]`), not
+  overlap-add; short inputs (≤ chunk + 2·pad frames) skip streaming. Boundary-quality
+  prior art: mush42/sonata (alive, 2024), marty1885/paroli (similarity-search concat);
+  mush42 himself suggests boundary smoothing/fades.
+- piper1-gpl (`OHF-Voice/piper1-gpl`) is the current reference implementation (6,181
+  stars, pushed 2026-11-02) — its phonemizer/id-assembly conventions are the porting
+  ground truth for 1.0.0-format voices. piper-rs's README credits mush42/sonata as
+  inspiration; either way, we port id assembly verbatim from piper source (both
+  lineages available), run the graphs in our own ORT sessions, and adopt only espeak-rs.
+
+## Groundwork ledger for the current board
+
+- kokoro / flow lanes: groundwork done (drop files, surgery, parity) — closed.
+- piper: groundwork **banked** in session-1 (discovery, surgery, seeded-noise
+  acceptance, probe timings); remaining = espeak provisioning + id-assembly vetting
+  (small, in-session) — then session-2 is pure Rust.
+- chatterbox (T010): groundwork **not done** — the real remaining non-Rust work
+  (clone + build chatterbox.cpp, verify C-API surface) ≈ one dedicated session before
+  any FFI Rust.
+- neucodec: shelved (T012); resident-service (T014): design done, implementation is
+  Rust at the seam; session-4 speed: optional, now decoupled from T014 (see
+  resident-service.md amendment).

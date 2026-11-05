@@ -219,3 +219,25 @@ Codec-decode rate stays unmeasured (`neucodec-onnx-decoder` gated and absent
 from the mount; two torch-neucodec pip attempts blew the time-box — the
 1.16 GB neucodec pth IS on the mount for a later pass). Verdict unchanged:
 SHELVE as lane; claim corrected.
+
+**T012 phase-2 measured — codec decode through OUR graph-ort machinery.**
+User gated in (`hf auth` as r1l37); artifacts dropped to
+`/teranux/hugging_face/t012-drop/` (int8 312 MB, fp32 782 MB; also piper
+amy/medium + ryan/high → T011 model logistics prepped). Graph contract
+verified exact: codes int32 [b,1,T] → audio f32 [b,1,480·T−480] (24 kHz).
+Bench via new example `neucodec_ort_bench.rs` (ort rc15 api-21 + ORT
+1.22.1 dylib — kokoro-identical path), t=8, 20 reps:
+
+| decoder | 50 tok (1 s) | 250 tok (5 s) | tok/s @250 | × budget | RSS |
+|---|---|---|---|---|---|
+| **int8** | **77.3 ms** | 335.9 ms | 744 | **12.9–14.9×** | 556 MB |
+| fp32 | 101.9 ms | 413.1 ms | 605 | 9.8–12.1× | 1.44 GB |
+
+Marginal decode ≈ 1.3 ms/token (int8) — never gates a ~20 ms backbone step.
+Rate value-independent (all-zero ids verified). **Chain picture complete**:
+backbone-bound at ~4.3× realtime (217 t/s), head hidden; the public "15×
+slower" is now fully attributed to the Python stack. Verdict unchanged:
+SHELVE as lane (third stack, gated supply, voice-encode torch-only, slots
+filled — and corrected 4.3× profile would regress WER like the other flow
+lane). Voice encode remains unmeasured by deliberate scope (one-time setup
+cost, torch-only, no ONNX artifact).

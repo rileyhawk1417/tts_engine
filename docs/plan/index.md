@@ -51,11 +51,11 @@ Status values: `not-started` · `in-progress` · `completed` · `blocked` · `sh
 |---|---|---|---|
 | T010 | chatterbox.cpp FFI lane | not-started | T002, T003 |
 
-## Milestone M4 — streaming + measurement lanes
+## Milestone M4 — streaming + measurement lanes  **(CLOSED 2026-11-05: T011 phase A adopted, T012 shelved as lane)**
 
 | ID | Task | Status | Depends on |
 |---|---|---|---|
-| T011 | Piper streaming lane | not-started | T002, T003, T013 |
+| T011 | Piper streaming lane | done-patchA 2026-11-05 (lane + gates; hard-500 500/500 identity on amy + ryan; verdict ADOPT — notes/piper.md) | T002, T003, T013 |
 | T012 | NeuTTS honest measurement experiment | done 2026-11-05 (backbone clears 50 Hz ≥2×; shelve as lane; see task file) | T003 |
 
 ## Critical path

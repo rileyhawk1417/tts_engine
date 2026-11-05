@@ -241,3 +241,38 @@ SHELVE as lane (third stack, gated supply, voice-encode torch-only, slots
 filled — and corrected 4.3× profile would regress WER like the other flow
 lane). Voice encode remains unmeasured by deliberate scope (one-time setup
 cost, torch-only, no ONNX artifact).
+
+## 2026-11-05n — T011 piper lane: hard-500 500/500 identity PASS, ADOPT (phase A)
+
+Both drop voices, Rust lane (`lanes/piper.rs`, feature `piper`, espeak-rs
+0.2 in-process G2P, seeded caller-noise, T013 chunks, release, seed 42,
+nemo-int8 judge `te @38b3d623`):
+
+| voice | corpus | n | identity | WER med | WER mean | TTFA med/p95 ms | seam rtf (audio/wall) | wall/audio | RSS max |
+|---|---|---|---|---|---|---|---|---|---|
+| piper amy medium (hard) | hard | 500 | **500/500 pass** | 30.95 | 44.07 | 204/359 | 15.94 | ≈0.063 | 288 MB |
+| piper ryan high (hard) | hard | 500 | **500/500 pass** | 20.00 | 33.01 | 663/1308 | 3.726 | ≈0.268 | 343 MB |
+
+First-80 slices (apples-to-apples vs the hard-80 rows): amy-80 WER med
+40.00 / mean 43.80 / TTFA med 238; ryan-80 WER med 22.50 / mean 32.41 /
+TTFA med 813. First lane with a **500/500 identity pass at any thread
+count** — the ORT session + per-sentence caller-supplied noise (graph
+surgery from session-1) has no grain race: chunking = whole text or T013
+chunks, rng advances across chunks deterministically within a process AND
+across processes (2 CLI runs byte-identical on a 6-sentence, 4-chunk text).
+
+Judged-context (same judge shas only): piper rows and the flow rows ran on
+`te @38b3d623` → ryan 22.50/20.00 vs flow-candle 42.86 / flow-ptts 46.43
+(hard-80 meds) — piper ryan is the best measured WER on this judge.
+Kokoro t005a med 25.00 ran on `te @cdb5b135` — cross-judge-sha, treat as
+approximate (ryan-80 med 22.50 would still be best if it maps 1:1, which is
+plausible given nemo's stability, but not proven within one judge sha).
+
+**Verdict: ADOPT phase A.** ryan = the en_US quality+speed lane (best WER
+among same-judge rows, 3.7× seam rtf, RSS 343 MB; every axis measured at or
+better than kokoro). amy = the resident latency champion (seam rtf 15.9×,
+warm TTFA ≈ 200 ms, RSS 288 MB) at a visibly weaker WER (medium-quality
+voice). Kokoro stays the board's default-lane reference (same-judge
+caveat + non-en voices); re-run kokoro on `38b3d623` if the en_US default
+switch is ever adjudicated. Phase B (mel streaming) remains blocked on
+checkpoint artifacts, not engineering.

@@ -1,6 +1,6 @@
 # T011 — Piper lane (streaming-graph)
 
-- **Status:** `in-progress` (session-1: discovery + graph surgery + acceptance probe done; Rust lane not yet built)
+- **Status:** `done-patchA` (phase A lane shipped + gated 2026-11-05: hard-500 500/500 identity pass on both voices; phase B remains blocked on checkpoint artifacts)
 - **Milestone:** [M4](../index.md#milestone-m4--streaming--measurement-lanes)
 - **Depends on:** [T002](T002-workspace-scaffold.md), [T003](T003-roundtrip-eval-harness.md), [T013](T013-longtext-chunking-module.md)
 
@@ -49,9 +49,32 @@ Probe timings (python ORT 1.29, fused graph, mid-length chat line):
 
 - Requires a piper **training checkpoint** for re-export via `export_onnx_streaming`; decoder chunk constants + overlap/add windowing to be ported from `piper_train/export_onnx_streaming.py` + `infer_onnx_streaming.py` if ever pursued. Drop-dir voices are checkpoint-less → **blocked on artifact availability, not on engineering**.
 
-## Done-conditions (phase A)
+## Done-conditions (phase A) — ALL MET 2026-11-05
 
-- [ ] `tts synth --lane piper --model <dir>` e2e: phonemize→run→wav with correct 22050 Hz rate
-- [ ] Byte-identity gate PASS (lane, f32, chat-length + hard-80 rows)
-- [ ] TTFA + RTF + WER scoreboard row vs kokoro (t005a ref) and flow-latent rows
-- [ ] Adopt/shelve verdict (expected: adopt as the cheapest-CPU en_US lane given rtf 0.075)
+- [x] `tts synth --lane piper --model <onnx>` e2e: phonemize→run→wav, 22050 Hz
+      (espeak-rs 0.2 in-process G2P: g2p stage ≈ 0–3 ms/chunk)
+- [x] Byte-identity gate PASS — hard corpus, n=500, both voices: amy + ryan
+      **500/500 pass / 0 FAIL** (probe: 3× byte-identical per seed × both voices;
+      seed 43 differs — seed dial live). Long text: 4 T013 chunks streamed, 2
+      runs byte-identical across processes.
+- [x] TTFA + RTF + WER scoreboard row vs kokoro + flow rows (see
+      notes/piper.md + results/scoreboard.md): amy TTFA med 204 ms / wall/audio
+      ≈ 0.063, ryan med 663 ms / ≈ 0.268; ryan WER med 20.00 (hard-500) /
+      22.50 (hard-80 slice) — best measured; judge-sha caveat vs kokoro noted.
+- [x] Adopt/shelve verdict: **ADOPT phase A** (ryan = quality lane;
+      amy = resident latency lane; details in notes/piper.md).
+
+## Session-2 layer-B integration notes (2026-11-05)
+
+- Output name is `output` (not `audio`); voice json twin is
+  `<full-filename>.onnx.json` (patched `-rng` graphs fall back to the
+  original's twin); espeak-rs-sys needs `-lpcaudio -lsonic` forwarded →
+  `crates/tts-engine/build.rs` under the `piper` feature;
+  `PIPER_ESPEAKNG_DATA_DIRECTORY=/usr/share` at runtime. Full list in
+  notes/piper.md.
+- ORT env hoisted to `lanes/mod.rs` (one env per process; kokoro deduped).
+- Law ports pinned verbatim (unit-tested): both id-assembly conventions
+  (`[BOS,PAD]…` for 1.0.0, `[BOS]…` for legacy) and both io-encode laws
+  (peak-norm 1e-8 / 0.01-floor). Voice json `phoneme_type: null` (ryan) is
+  a tolerated parse deviation — law dispatch is by `piper_version` digits
+  (upstream 0.2.0 `PhonemeType(None)` would raise).

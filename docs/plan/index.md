@@ -65,7 +65,7 @@ T001 → T002 → T003 → T004 → T005 → T007. T006 branches after T003 (can
 ## Open questions
 
 - G2P for the Kokoro lane: espeak-ng (GPL-linking caveat) vs misaki — spike or commit? (verify-list in targets.md)
-- Streaming IPC shape for the seam: chunk callbacks in-process now (library users), named-pipe/WS later?
+- Streaming IPC shape for the seam: RESOLVED DIRECTION drafted in [notes/resident-service.md](../notes/resident-service.md) — one binary, two modes (`tts synth` batch / `tts serve` resident daemon), HTTP/1.1 over UDS with NDJSON chunk frames, worker-loop=1 per lane. T011 carries the protocol; candidate task T014 (`tts serve`) proposed there, sequenced AFTER session-4 speed.
 - Which `te` lane is the default round-trip judge: nemo int8 (fastest) vs parakeet q8_0 (tiebreak)?
 
 ## Sources

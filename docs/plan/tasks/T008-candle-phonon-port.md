@@ -1,6 +1,6 @@
 # T008 — Candle from-scratch Phonon-31m port (flow-latent step b)
 
-- **Status:** `not-started`
+- **Status:** `in-progress` — session 1 (2026-11-05): scaffold banked (commit `48e9552`); transformer/flow/Mimi port in sessions 2+
 - **Milestone:** [M2](../index.md#milestone-m2--flow-latent-lane-phonon-then-pockettts-checkpoint)
 - **Depends on:** [T006](T006-phonon-ptts-lane.md) (ptts lane = correctness oracle)
 
@@ -16,6 +16,19 @@ Our own implementation of Phonon-31m in candle — weights mmap'd straight off d
 - KV cache + conv streaming state kept in a `Session` struct (our own, shape-documented; parity-checked against ptts primed sessions).
 - Mimi decoder in a shared module (no lane-specific deps) so PocketTTS checkpoint (targets.md lane 2b) can ride the same decoder later.
 
+## Progress log
+- **Session 1 (2026-11-05, commit `48e9552`):** `candle_ptts` module behind the
+  `flow-candle` feature — `cfg.rs` is a faithful serde port of the
+  ptts-0.6.0 TTSConfig graph (enums Gelu/TimeRmsNorm/FlowType included);
+  `loader.rs` ports the remap table verbatim + mmap safetensors inventory
+  (candle `MmapedSafetensors`, headers only — nothing materialized). Lane
+  skeleton `flow_candle` passes `load()` and fails `synthesize()` cleanly.
+  Probe `flow_candle_probe` audit on models/phonon-31m-en: all knobs
+  config-sourced (temp 0.8, lsd_steps 1, eos 4.0, gelu Erf, time_rms Rms,
+  flow Lsd), 185 tensors / 183 remap-used / 98 MiB f32, remapped
+  backbone/decoder keys present (90). Caught + fixed: samples/frame is the
+  oracle's `frame_size` = round(24000/12.5) = 1920 (seanet hop 120 → encoder
+  200 fps → downsample stride 16), NOT ratios×kernel (840).
 ## Done-conditions
 
 - [ ] `tts synth --lane flow-candle ...` produces audio for a corpus sentence, chunks.jsonl complete

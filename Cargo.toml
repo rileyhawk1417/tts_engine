@@ -13,3 +13,6 @@ thiserror = "2"
 sha2 = "0.10"
 clap = { version = "4", features = ["derive"] }
 tts-engine = { path = "crates/tts-engine" }
+# Same pin te ships (load-dynamic + api-21; dylib resolved at process start).
+# Members that gate it declare it `optional = true` on their side.
+ort = { version = "2.0.0-rc.15", default-features = false, features = ["load-dynamic", "api-21"] }

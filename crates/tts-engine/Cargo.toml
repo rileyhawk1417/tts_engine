@@ -8,3 +8,12 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 sha2 = { workspace = true }
+ort = { workspace = true, optional = true }
+
+[features]
+default = []
+# Kokoro-82M ONNX graph lane (T004). `load-dynamic`: no bundled runtime — the
+# 1.22.x dylib resolves at process start from TTS_ORT_DYLIB / ORT_DYLIB_PATH /
+# the durable default (mirrors te's nemo lane); `api-21`: API level for that
+# runtime. ORT allows one shared env per process.
+graph-ort = ["dep:ort"]

@@ -1,14 +1,20 @@
 pub mod smoke;
 
+#[cfg(feature = "graph-ort")]
+pub mod kokoro;
+
 use crate::types::{ModelRef, TtsLane};
 
 /// Lane feature registry. Each feature-gated lane registers here:
 /// `graph-ort` (T004, `graph-ort` feature), `flow-ptts` (T006), `flow-candle`
 /// (T008), `ggml-ffi` (T010), `streaming-graph` (T011). Unknown lane names
-/// are a CLI usage error, not a runtime panic.
+/// are a CLI usage error, not a runtime panic; disabled features fall
+/// through to the same error (message notes the feature).
 pub fn make_lane(name: &str) -> Option<Box<dyn TtsLane>> {
     match name {
         "smoke" => Some(Box::new(smoke::SmokeLane::new())),
+        #[cfg(feature = "graph-ort")]
+        "kokoro" => Some(Box::new(self::kokoro::KokoroLane::new())),
         _ => None,
     }
 }

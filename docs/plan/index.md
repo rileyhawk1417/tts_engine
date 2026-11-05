@@ -32,8 +32,8 @@ Status values: `not-started` · `in-progress` · `completed` · `blocked` · `sh
 
 | ID | Task | Status | Depends on |
 |---|---|---|---|
-| T004 | Kokoro-ORT lane end-to-end | not-started | T002, T003, T013 |
-| T005 | Kokoro baseline scoreboard on Zen 2 | not-started | T004 |
+| T004 | Kokoro-ORT lane end-to-end | completed (2026-11-05) | T002, T003, T013 |
+| T005 | Kokoro baseline scoreboard on Zen 2 | not-started (NEXT) | T004 |
 
 ## Milestone M2 — flow-latent lane (Phonon, then PocketTTS checkpoint)
 

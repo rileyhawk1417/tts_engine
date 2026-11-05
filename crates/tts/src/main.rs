@@ -36,7 +36,8 @@ struct Cli {
 enum Cmd {
     /// Synthesize text through a lane, writing WAV + telemetry.
     Synth {
-        /// Lane name: smoke | graph-ort | flow-ptts | flow-candle | ggml-ffi | streaming-graph
+        /// Lane name: smoke | kokoro (feature graph-ort) | flow-ptts | flow-candle
+        /// | ggml-ffi | streaming-graph (later ones land per task)
         #[arg(long)]
         lane: String,
         /// Model: a local path (mmap-loaded per the seam mandate) or, with

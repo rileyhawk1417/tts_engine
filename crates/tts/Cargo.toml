@@ -6,3 +6,7 @@ edition.workspace = true
 [dependencies]
 clap = { workspace = true }
 tts-engine = { workspace = true }
+
+[features]
+default = []
+graph-ort = ["tts-engine/graph-ort"]

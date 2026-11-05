@@ -31,3 +31,6 @@ rand_distr = "0.5.0"
 # Same pin the oracle ships for checkpoint tokenizers.json (features match
 # ptts's manifest: fancy-regex only, defaults off).
 tokenizers = { version = "0.23.1", default-features = false, features = ["fancy-regex"] }
+# T011 piper G2P: in-process vendored espeak-ng (1.52.0.1) via espeak-rs 0.2
+# (thewh1teagle/piper-rs); GPLv3 linking caveat documented in the lane.
+espeak-rs = "0.2"

@@ -21,8 +21,8 @@ use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use ort::environment::Environment;
-use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
+use ort::session::builder::GraphOptimizationLevel;
 use ort::value::Tensor;
 
 /// Same dylib the kokoro lane rides by default (1.22.1, api-21).
@@ -46,7 +46,12 @@ fn ort_env() -> Result<&'static Environment, String> {
     Ok(ENV.get().expect("just set"))
 }
 
-fn build_session(env: &Environment, model: &str, intra: usize, threads_arg: u64) -> Result<Session, String> {
+fn build_session(
+    env: &Environment,
+    model: &str,
+    intra: usize,
+    threads_arg: u64,
+) -> Result<Session, String> {
     let name = if threads_arg == 0 {
         intra // 0 arg = runtime default; pass the builder's own default
     } else {
@@ -93,10 +98,7 @@ fn main() -> Result<(), String> {
     let model = args.next().unwrap_or_else(|| {
         "/teranux/hugging_face/t012-drop/neucodec-onnx-decoder-int8/model.onnx".to_string()
     });
-    let reps: usize = args
-        .next()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(20);
+    let reps: usize = args.next().and_then(|s| s.parse().ok()).unwrap_or(20);
     let threads_arg: u64 = args.next().and_then(|s| s.parse().ok()).unwrap_or(8);
 
     let env = ort_env()?;

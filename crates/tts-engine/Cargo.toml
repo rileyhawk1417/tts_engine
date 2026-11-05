@@ -16,6 +16,7 @@ candle-nn = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
 rand_distr = { workspace = true, optional = true }
 tokenizers = { workspace = true, optional = true }
+espeak-rs = { workspace = true, optional = true }
 
 [features]
 default = []
@@ -30,6 +31,10 @@ flow-ptts = ["dep:ptts", "dep:xn"]
 # rand pins match the oracle sampler exactly (rng.rs), tokenizers 0.23.1 is the
 # oracle's tokenizer crate version.
 flow-candle = ["dep:candle-core", "dep:candle-nn", "dep:rand", "dep:rand_distr", "dep:tokenizers", "dep:ptts"]
+# T011 piper lane: fused VITS graphs via ort (same runtime class as graph-ort)
+# + in-process espeak-ng G2P via espeak-rs. rand/rand_distr pins match the
+# piper randn conventions (same crate versions as the ptts oracle sampler).
+piper = ["dep:espeak-rs", "dep:ort", "dep:rand", "dep:rand_distr"]
 
 # Examples compile per-feature; the probes import lane deps, so gate them
 # (auto-discovery would break `cargo test -p tts-engine` on any single-feature
@@ -45,3 +50,7 @@ required-features = ["flow-ptts"]
 [[example]]
 name = "flow_candle_probe"
 required-features = ["flow-candle"]
+
+[[example]]
+name = "piper_lane_probe"
+required-features = ["piper"]

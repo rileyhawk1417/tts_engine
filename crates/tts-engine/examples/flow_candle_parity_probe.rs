@@ -36,7 +36,11 @@ fn replay_values() -> Vec<f32> {
 }
 
 fn fmt8(vals: &[f32]) -> String {
-    vals.iter().take(8).map(|v| format!("{v:+.4}")).collect::<Vec<_>>().join(" ")
+    vals.iter()
+        .take(8)
+        .map(|v| format!("{v:+.4}"))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// L2 across the short side, plus max |a-b|, for two host vectors.
@@ -45,8 +49,18 @@ fn diff_stats(a: &[f32], b: &[f32]) -> (f32, f32) {
     if n == 0 {
         return (0.0, 0.0);
     }
-    let l2 = a.iter().zip(b).map(|(x, y)| (x - y) * (x - y)).sum::<f32>().sqrt();
-    let max = a.iter().zip(b).take(n).map(|(x, y)| (x - y).abs()).fold(0.0f32, f32::max);
+    let l2 = a
+        .iter()
+        .zip(b)
+        .map(|(x, y)| (x - y) * (x - y))
+        .sum::<f32>()
+        .sqrt();
+    let max = a
+        .iter()
+        .zip(b)
+        .take(n)
+        .map(|(x, y)| (x - y).abs())
+        .fold(0.0f32, f32::max);
     (l2, max)
 }
 
@@ -81,13 +95,10 @@ fn stages_probe(cp: &Checkpoint, chunk: &OracleChunk) {
         &HashMap::new(),
     )
     .expect("oracle TTSModel");
-    let oracle_cond = ptts::loader::load_conditions::<f32, CpuDevice>(
-        &weights,
-        &cp.config,
-        &HashMap::new(),
-    )
-    .expect("oracle conditions")
-    .expect("oracle cond present");
+    let oracle_cond =
+        ptts::loader::load_conditions::<f32, CpuDevice>(&weights, &cp.config, &HashMap::new())
+            .expect("oracle conditions")
+            .expect("oracle cond present");
 
     let vw = tts_engine::candle_ptts::loader::Weights::from_safetensors(cp.weights.as_path())
         .expect("candle weights");
@@ -177,10 +188,7 @@ fn stages_probe(cp: &Checkpoint, chunk: &OracleChunk) {
 
     // ---- D: transformer forward on identical synthetic inputs, fresh states ----
     let budget = ptts::plan::seq_budget(chunk.tokens.len(), chunk.frame_budget);
-    for (label, input) in [
-        ("zeros", None),
-        ("random", Some(replay_like_input())),
-    ] {
+    for (label, input) in [("zeros", None), ("random", Some(replay_like_input()))] {
         let (ox, cx) = match input {
             Some(v) => (
                 xn::Tensor::<f32, CpuDevice>::from_vec(v.clone(), (1, 3, 512), &xn::CPU)
@@ -193,7 +201,11 @@ fn stages_probe(cp: &Checkpoint, chunk: &OracleChunk) {
                 Tensor::zeros((1, 3, 512), DType::F32, &Device::Cpu).expect("candle zeros"),
             ),
         };
-        let mut os = oracle.flow_lm.transformer.init_state(1, budget).expect("o state");
+        let mut os = oracle
+            .flow_lm
+            .transformer
+            .init_state(1, budget)
+            .expect("o state");
         let o = oracle
             .flow_lm
             .transformer
@@ -224,11 +236,11 @@ fn stages_probe(cp: &Checkpoint, chunk: &OracleChunk) {
         let norm = ptts::preprocess::Normalize::for_lang(ptts::preprocess::Lang::En);
         let otok = ptts::tok::Tok::open(std::path::Path::new(&tok_path)).expect("otok");
         let och = ptts::plan::chunks(&otok, text, norm, 50, 12.5).expect("oplan");
-        let ctok = tts_engine::candle_ptts::tok::Tok::open(std::path::Path::new(&tok_path))
-            .expect("ctok");
+        let ctok =
+            tts_engine::candle_ptts::tok::Tok::open(std::path::Path::new(&tok_path)).expect("ctok");
         let cnorm = ptts::preprocess::Normalize::for_lang(ptts::preprocess::Lang::En);
-        let cch = tts_engine::candle_ptts::plan::chunks(&ctok, text, cnorm, 50, 12.5)
-            .expect("cplan");
+        let cch =
+            tts_engine::candle_ptts::plan::chunks(&ctok, text, cnorm, 50, 12.5).expect("cplan");
         println!(
             "F plan[{text}] : oracle {} chunks vs candle {} chunks",
             och.len(),
@@ -249,7 +261,12 @@ fn stages_probe(cp: &Checkpoint, chunk: &OracleChunk) {
             }
         }
         if och.len() == cch.len() {
-            println!("   all token lists equal: {}", och.iter().zip(cch.iter()).all(|(o, c)| o.tokens == c.tokens));
+            println!(
+                "   all token lists equal: {}",
+                och.iter()
+                    .zip(cch.iter())
+                    .all(|(o, c)| o.tokens == c.tokens)
+            );
         }
     }
 }
@@ -272,17 +289,24 @@ fn replay_like_input() -> Vec<f32> {
 }
 
 fn fmt_dims(d: &[usize]) -> String {
-    d.iter().map(|x| x.to_string()).collect::<Vec<_>>().join("x")
+    d.iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join("x")
 }
 
 fn main() {
     let dir = std::env::args().nth(1).expect("checkpoint dir");
     let arg2 = std::env::args().nth(2).unwrap_or_default();
     let stages_mode = arg2 == "stages";
-    let steps: usize = arg2.parse().ok().or({
-        let _ = &arg2;
-        Some(48usize)
-    }).unwrap_or(48);
+    let steps: usize = arg2
+        .parse()
+        .ok()
+        .or({
+            let _ = &arg2;
+            Some(48usize)
+        })
+        .unwrap_or(48);
     let text = std::env::args().nth(3).unwrap_or_else(|| "a.".to_string());
 
     let cp = Checkpoint::open(&dir).expect("checkpoint");
@@ -293,7 +317,10 @@ fn main() {
 
     // One shared chunk from the ORACLE tokenizer: tokenization is identical on
     // both sides by construction (Normalize is delegated to ptts in the port).
-    let tok_path = cp.tokenizer.clone().expect("checkpoint ships tokenizer.json");
+    let tok_path = cp
+        .tokenizer
+        .clone()
+        .expect("checkpoint ships tokenizer.json");
     let chunk = {
         let tok = ptts::tok::Tok::open(&tok_path).expect("chunk tokenizer");
         OracleChunk::new(text.clone(), &tok, FRAME_RATE).expect("chunk")
@@ -309,9 +336,8 @@ fn main() {
     }
 
     let values = replay_values();
-    let fresh_replay = || -> Box<OracleReplay> {
-        Box::new(OracleReplay::new(values.clone()).expect("replay"))
-    };
+    let fresh_replay =
+        || -> Box<OracleReplay> { Box::new(OracleReplay::new(values.clone()).expect("replay")) };
 
     // ================= oracle side =================
     let oracle_latents: Vec<(Vec<f32>, f32, bool)> = {
@@ -332,19 +358,18 @@ fn main() {
             &xn::CPU,
         )
         .expect("voice emb");
-        let cond = ptts::loader::load_conditions::<f32, CpuDevice>(
-            &weights,
-            &cp.config,
-            &HashMap::new(),
-        )
-        .expect("conditions")
-        .expect("cond present");
+        let cond =
+            ptts::loader::load_conditions::<f32, CpuDevice>(&weights, &cp.config, &HashMap::new())
+                .expect("conditions")
+                .expect("cond present");
 
         let budget = ptts::plan::seq_budget(chunk.tokens.len(), chunk.frame_budget);
         let mut state = model.init_flow_lm_state(1, budget).expect("state");
         state.flow_lm_state.conditions = Some(cond);
         model.prompt_audio(&mut state, &emb).expect("prompt_audio");
-        model.prompt_text(&mut state, &chunk.tokens).expect("prompt_text");
+        model
+            .prompt_text(&mut state, &chunk.tokens)
+            .expect("prompt_text");
 
         let mut mimi = model.init_mimi_state(1).expect("mimi state");
         let mut rng = fresh_replay();
@@ -387,16 +412,17 @@ fn main() {
 
     // ================= candle side =================
     let candle_latents: Vec<(Vec<f32>, f32, bool)> = {
-        use tts_engine::candle_ptts::loader::{load_voice_emb, Weights};
+        use tts_engine::candle_ptts::loader::{Weights, load_voice_emb};
         use tts_engine::candle_ptts::model::{StepInput as CandleStep, TTSModel as CandleModel};
         use tts_engine::candle_ptts::rng::ReplayRng as CandleReplay;
 
-        let weights = Weights::from_safetensors(std::path::Path::new(&cp.weights))
-            .expect("candle weights");
+        let weights =
+            Weights::from_safetensors(std::path::Path::new(&cp.weights)).expect("candle weights");
         let vb = weights.var_builder();
         let tok_path = cp.tokenizer.clone().expect("tokenizer.json");
         let tokenizer: Box<dyn tts_engine::candle_ptts::tok::Tokenizer> = Box::new(
-            tts_engine::candle_ptts::tok::Tok::open(std::path::Path::new(&tok_path)).expect("candle tok"),
+            tts_engine::candle_ptts::tok::Tok::open(std::path::Path::new(&tok_path))
+                .expect("candle tok"),
         );
         let ccfg = tts_engine::candle_ptts::cfg::from_checkpoint(
             &std::path::Path::new(&dir).join("config.json"),
@@ -444,9 +470,7 @@ fn main() {
             .init_mimi_state(1)
             .map_err(|e| panic!("candle mimi state: {e}"))
             .unwrap();
-        let mut rng = Box::new(
-            CandleReplay::new(values.clone()).expect("candle replay"),
-        );
+        let mut rng = Box::new(CandleReplay::new(values.clone()).expect("candle replay"));
         let mut prev: Option<Tensor> = None;
         let mut out = Vec::new();
         for i in 0..steps {

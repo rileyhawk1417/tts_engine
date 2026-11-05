@@ -37,7 +37,7 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use ort::session::{Session, builder::GraphOptimizationLevel};
@@ -49,12 +49,15 @@ use crate::types::{
     SynthStream, TtsLane, VoiceRef,
 };
 
+// ORT api/env helpers live in the lanes module root: ONE env per process
+// (ort 2.0-rc law). The piper lane (T011) shares them.
+use super::{ort, ort_env};
+
 pub const SAMPLE_RATE: u32 = 24_000;
 const MAX_PHONEME_LENGTH: usize = 510;
 const VOICE_ROWS: usize = 510;
 const VOICE_COLS: usize = 256;
 const DEFAULT_VOICE: &str = "af_heart";
-const DEFAULT_ORT_LIB: &str = "/teranux/ort-1.22.1/libonnxruntime.so";
 const ESPEAK_WINDOW: usize = 48;
 const SENTENCE_PAUSE_S: f32 = 0.25;
 const CLAUSE_PAUSE_S: f32 = 0.10;
@@ -511,40 +514,6 @@ fn tokenize_phonemes(ps: &str) -> Vec<i64> {
 /// the phoneme ids pre-pad.
 fn style_row_index(token_len: usize) -> usize {
     token_len.min(MAX_PHONEME_LENGTH).saturating_sub(1)
-}
-
-fn ort_env() -> Result<&'static ort::environment::Environment, LaneError> {
-    static ENV: OnceLock<ort::environment::Environment> = OnceLock::new();
-    if let Some(env) = ENV.get() {
-        return Ok(env);
-    }
-    let lib = std::env::var("TTS_ORT_DYLIB")
-        .ok()
-        .or_else(|| std::env::var("ORT_DYLIB_PATH").ok())
-        .unwrap_or_else(|| {
-            if Path::new(DEFAULT_ORT_LIB).exists() {
-                DEFAULT_ORT_LIB.to_string()
-            } else {
-                "libonnxruntime.so".to_string()
-            }
-        });
-    let env = ort::init_from(&lib)
-        .map_err(|e| {
-            LaneError::Load(format!(
-                "ort dylib load failed ({lib}): {e} — the kokoro lane needs an ORT 1.22.x dylib; \
-                 set TTS_ORT_DYLIB or ORT_DYLIB_PATH (e.g. pip install onnxruntime==1.22.1, then \
-                 ORT_DYLIB_PATH=<site-packages>/onnxruntime/capi/libonnxruntime.so*)"
-            ))
-        })?
-        .with_telemetry(false)
-        .build()
-        .map_err(|e| LaneError::Load(format!("ort environment build: {e}")))?;
-    let _ = ENV.set(env);
-    Ok(ENV.get().expect("just set"))
-}
-
-fn ort<T>(r: ort::Result<T>, what: &str) -> Result<T, LaneError> {
-    r.map_err(|e| LaneError::Synth(format!("{what}: {e}")))
 }
 
 struct KokoroRuntime {

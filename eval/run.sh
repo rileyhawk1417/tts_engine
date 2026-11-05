@@ -41,11 +41,15 @@ done
 [ -n "$LANE" ] && [ -n "$MODEL" ] || { echo "run.sh: --lane and --model required" >&2; exit 2; }
 
 TTS=target/release/tts
-# lane features live behind cargo features: graph-ort (kokoro) + flow-ptts
-# (Phonon). Run flow-ptts rows with TTS_XN_THREADS=1 so byte-identity gates
+# lane features live behind cargo features: graph-ort (kokoro), flow-ptts
+# (Phonon), flow-candle (T008 candle port). ALL THREE on every rebuild — a
+# feature-stripped relink silently drops lanes (the binary keeps its size,
+# mtime lies after the hardlink relink, so size/mtime are NOT staleness
+# signals; only the feature list is truth).
+# Run flow-ptts rows with TTS_XN_THREADS=1 so byte-identity gates
 # pass (xn CPU FP kernels are order-nondeterministic under parallelism).
-[ -x "$TTS" ] || cargo build --release --features graph-ort,flow-ptts -q
-cargo build --release --features graph-ort,flow-ptts -q
+[ -x "$TTS" ] || cargo build --release --features graph-ort,flow-ptts,flow-candle -q
+cargo build --release --features graph-ort,flow-ptts,flow-candle -q
 if [ "$LANE" = flow-ptts ]; then
     export TTS_XN_THREADS="${TTS_XN_THREADS:-1}"
 fi

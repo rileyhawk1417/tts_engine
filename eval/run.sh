@@ -20,7 +20,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-LANE="" MODEL="" CORPUS="internal" LIMIT=0 JUDGE="nemo" SEED=42 TAG=""
+# --out DIR resumes a prior run dir: rows with transcript.txt are skipped,
+# rows.tsv is kept, and end-of-run summaries still regenerate.
+LANE="" MODEL="" CORPUS="internal" LIMIT=0 JUDGE="nemo" SEED=42 TAG="" RESUME=0
 TE=../transcription_engine/target/release/te
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -32,6 +34,7 @@ while [ $# -gt 0 ]; do
         --te) TE="$2"; shift 2 ;;
         --seed) SEED="$2"; shift 2 ;;
         --tag) TAG="$2"; shift 2 ;;
+        --out) OUT="$2"; RESUME=1; shift 2 ;;
         *) echo "run.sh: unknown arg $1" >&2; exit 2 ;;
     esac
 done
@@ -61,9 +64,16 @@ esac
 
 # corpus dir-name: bare stem for file corpora (no slashes in the stamp)
 CORPUS_NAME=$(basename "$CORPUS" .toml)
-STAMP=$(date +%Y%m%d-%H%M)-${LANE}-${CORPUS_NAME}${TAG:+-$TAG}
-OUT=eval/results/$STAMP
+if [ "$RESUME" != 1 ]; then
+    STAMP=$(date +%Y%m%d-%H%M)-${LANE}-${CORPUS_NAME}${TAG:+-$TAG}
+    OUT=eval/results/$STAMP
+fi
 mkdir -p "$OUT"
+# a usable resume target must already carry a rows.tsv
+if [ "$RESUME" = 1 ] && [ ! -f "$OUT/rows.tsv" ]; then
+    echo "run.sh: --out '$OUT' has no rows.tsv — starting fresh" >&2
+    RESUME=0
+fi
 
 # --- corpus loader: prints id<TAB>lang<TAB>text -------------------------------
 if [ "$CORPUS" = hard ]; then
@@ -93,8 +103,10 @@ SENT_N=$(printf '%s\n' "$SENTENCES" | wc -l)
 TAKE=$SENT_N
 [ "$LIMIT" -gt 0 ] && [ "$LIMIT" -lt "$SENT_N" ] && TAKE=$LIMIT
 
-: > "$OUT/rows.tsv"
-printf 'id\tlang\twer\traw_wer\tttfa_ms\trtf_final\tpeak_rss_kb_max\taudio_s\twall_ms\tidentity\n' >> "$OUT/rows.tsv"
+if [ "$RESUME" != 1 ]; then
+    : > "$OUT/rows.tsv"
+    printf 'id\tlang\twer\traw_wer\tttfa_ms\trtf_final\tpeak_rss_kb_max\taudio_s\twall_ms\tidentity\n' >> "$OUT/rows.tsv"
+fi
 
 # metrics: "ttfa_ms rtf_final peak_rss_kb_max audio_s wall_ms" from summary row
 summary_metrics() {  # $1 = chunks.jsonl
@@ -108,6 +120,13 @@ PY
 }
 
 printf '%s\n' "$SENTENCES" | head -n "$TAKE" | while IFS=$'\t' read -r ID LANG_ TEXT; do
+    # resume: a prior row dir for this ID with a transcript is done - skip it
+    EXIST=$(find "$OUT" -maxdepth 1 -name "*-$ID" -print -quit 2>/dev/null || true)
+    if [ -n "$EXIST" ] && [ -f "$EXIST/transcript.txt" ]; then
+        echo "[$(wc -l < "$OUT/rows.tsv")] $ID skip (resume)"
+        continue
+    fi
+
     n=$(( $(wc -l < "$OUT/rows.tsv") ))
     WD="$OUT/$(printf '%02d' $n)-$ID"
     mkdir -p "$WD"

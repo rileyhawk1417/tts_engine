@@ -31,11 +31,17 @@ pub fn write_wav(path: impl AsRef<Path>, sample_rate: u32, samples: &[i16]) -> i
     f.flush()
 }
 
-/// Parse a 16/24/32-bit PCM or float32 WAV file (any sample rate), downmix to
-/// mono, resample (naive linear) to `target_rate`, and return i16 samples.
-/// Used by the eval harness to sanity-check our own outputs before judging.
-pub fn read_wav_as_mono_i16(path: impl AsRef<Path>, target_rate: u32) -> io::Result<Vec<i16>> {
-    let bytes = std::fs::read(path)?;
+/// Parse a 16/24/32-bit PCM or float32 WAV **byte buffer** (any sample
+/// rate), downmix to mono i16. No resampling — callers that need a rate
+/// conversion use the file variant below. Added for T010 ggml-ffi: the
+/// shim hands back a WAV buffer owned by llama.cpp's pipeline.
+/// Returns `(sample_rate, samples)`.
+pub fn parse_wav_buffer_mono_i16(bytes: &[u8]) -> io::Result<(u32, Vec<i16>)> {
+    let (rate, f32s) = wav_to_mono_f32(bytes)?;
+    Ok((rate, f32s.iter().map(|&v| clamp_i16(v)).collect()))
+}
+
+fn wav_to_mono_f32(bytes: &[u8]) -> io::Result<(u32, Vec<f32>)> {
     if bytes.len() < 44 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -125,6 +131,15 @@ pub fn read_wav_as_mono_i16(path: impl AsRef<Path>, target_rate: u32) -> io::Res
         }
         f32s.push(acc / channels as f32);
     }
+    Ok((rate, f32s))
+}
+
+/// Parse a 16/24/32-bit PCM or float32 WAV file (any sample rate), downmix to
+/// mono, resample (naive linear) to `target_rate`, and return i16 samples.
+/// Used by the eval harness to sanity-check our own outputs before judging.
+pub fn read_wav_as_mono_i16(path: impl AsRef<Path>, target_rate: u32) -> io::Result<Vec<i16>> {
+    let bytes = std::fs::read(path)?;
+    let (rate, f32s) = wav_to_mono_f32(&bytes)?;
 
     // Resample to target_rate (linear; evaluation-side sanity only)
     if rate == target_rate || f32s.is_empty() {

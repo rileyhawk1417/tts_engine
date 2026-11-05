@@ -42,14 +42,15 @@ done
 
 TTS=target/release/tts
 # lane features live behind cargo features: graph-ort (kokoro), flow-ptts
-# (Phonon), flow-candle (T008 candle port), piper (T011 fused VITS). ALL
-# FOUR on every rebuild — a feature-stripped relink silently drops lanes
+# (Phonon), flow-candle (T008 candle port), piper (T011 fused VITS),
+# ggml-ffi (T010 llama.cpp chatterbox FFI). ALL
+# FIVE on every rebuild — a feature-stripped relink silently drops lanes
 # (the binary keeps its size, mtime lies after the hardlink relink, so
 # size/mtime are NOT staleness signals; only the feature list is truth).
 # Run flow-ptts rows with TTS_XN_THREADS=1 so byte-identity gates
 # pass (xn CPU FP kernels are order-nondeterministic under parallelism).
-[ -x "$TTS" ] || cargo build --release --features graph-ort,flow-ptts,flow-candle,piper -q
-cargo build --release --features graph-ort,flow-ptts,flow-candle,piper -q
+[ -x "$TTS" ] || cargo build --release --features graph-ort,flow-ptts,flow-candle,piper,ggml-ffi -q
+cargo build --release --features graph-ort,flow-ptts,flow-candle,piper,ggml-ffi -q
 if [ "$LANE" = flow-ptts ]; then
     export TTS_XN_THREADS="${TTS_XN_THREADS:-1}"
 fi

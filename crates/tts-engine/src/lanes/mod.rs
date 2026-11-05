@@ -12,7 +12,15 @@ pub mod flow_candle;
 #[cfg(feature = "piper")]
 pub mod piper;
 
-use crate::types::{LaneError, ModelRef, TtsLane};
+#[cfg(feature = "ggml-ffi")]
+pub mod ggml_ffi;
+
+#[cfg_attr(
+    all(not(feature = "piper"), not(feature = "graph-ort")),
+    allow(unused_imports)
+)]
+use crate::types::LaneError;
+use crate::types::{ModelRef, TtsLane};
 
 #[cfg(any(feature = "graph-ort", feature = "piper"))]
 pub(crate) const DEFAULT_ORT_LIB: &str = "/teranux/ort-1.22.1/libonnxruntime.so";
@@ -63,6 +71,7 @@ pub(crate) fn ort<T>(r: ort::Result<T>, what: &str) -> Result<T, LaneError> {
 
 /// Lane-agnostic CPU dial default: logical/2 ≈ physical cores (SMT halves
 /// give no compute; the te/STT law — threads=cores — transfers here).
+#[cfg(any(feature = "graph-ort", feature = "piper"))]
 pub(crate) fn physical_core_estimate() -> usize {
     let logical = std::thread::available_parallelism()
         .map(|n| n.get())
@@ -72,8 +81,9 @@ pub(crate) fn physical_core_estimate() -> usize {
 
 /// Lane feature registry. Each feature-gated lane registers here:
 /// `graph-ort` (T004, `graph-ort` feature), `flow-ptts` (T006), `flow-candle`
-/// (T008), `ggml-ffi` (T010), `streaming-graph` (T011). Unknown lane names
-/// are a CLI usage error, not a runtime panic; disabled features fall
+/// (T008), `ggml-ffi` (T010, llama.cpp chatterbox FFI), `piper` (T011).
+/// Unknown lane names are a CLI usage error, not a runtime panic; disabled
+/// features fall
 /// through to the same error (message notes the feature).
 pub fn make_lane(name: &str) -> Option<Box<dyn TtsLane>> {
     match name {
@@ -86,6 +96,8 @@ pub fn make_lane(name: &str) -> Option<Box<dyn TtsLane>> {
         "flow-candle" => Some(Box::new(self::flow_candle::FlowCandleLane::new())),
         #[cfg(feature = "piper")]
         "piper" => Some(Box::new(self::piper::PiperLane::new())),
+        #[cfg(feature = "ggml-ffi")]
+        "ggml-ffi" => Some(Box::new(self::ggml_ffi::GgmlFfiLane::new())),
         _ => None,
     }
 }

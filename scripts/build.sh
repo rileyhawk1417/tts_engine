@@ -5,16 +5,17 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# The kokoro (ORT), flow-ptts (Phonon/xn), flow-candle (T008 port), and
-# piper (T011 fused VITS) lanes live behind cargo features; run every cargo
+# The kokoro (ORT), flow-ptts (Phonon/xn), flow-candle (T008 port),
+# piper (T011 fused VITS), and ggml-ffi (T010 llama.cpp chatterbox FFI)
+# lanes live behind cargo features; run every cargo
 # step with them so gate = shipped reality.
 cargo fmt --all
-cargo clippy --workspace --all-targets --features graph-ort,flow-ptts,flow-candle,piper -- -D warnings
-cargo test --workspace --features graph-ort,flow-ptts,flow-candle,piper --quiet
-cargo build --workspace --features graph-ort,flow-ptts,flow-candle,piper -q
+cargo clippy --workspace --all-targets --features graph-ort,flow-ptts,flow-candle,piper,ggml-ffi -- -D warnings
+cargo test --workspace --features graph-ort,flow-ptts,flow-candle,piper,ggml-ffi --quiet
+cargo build --workspace --features graph-ort,flow-ptts,flow-candle,piper,ggml-ffi -q
 
 # e2e runs the release binary — the shipped artifact (xn debug build is ~8x slower)
-cargo build --workspace --release --features graph-ort,flow-ptts,flow-candle,piper -q
+cargo build --workspace --release --features graph-ort,flow-ptts,flow-candle,piper,ggml-ffi -q
 
 mkdir -p out
 TEXT="Hello from the seam. The smoke lane writes honest silence and honest telemetry, one row per chunk."

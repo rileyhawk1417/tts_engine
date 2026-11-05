@@ -34,3 +34,6 @@ tokenizers = { version = "0.23.1", default-features = false, features = ["fancy-
 # T011 piper G2P: in-process vendored espeak-ng (1.52.0.1) via espeak-rs 0.2
 # (thewh1teagle/piper-rs); GPLv3 linking caveat documented in the lane.
 espeak-rs = "0.2"
+# T010 ggml-ffi: builds the C++ shim over llama.cpp's native TTS path from
+# build.rs (cc mirrors the espeak-rs-sys vendored-build pattern).
+cc = "1"

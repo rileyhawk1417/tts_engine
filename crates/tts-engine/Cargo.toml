@@ -20,6 +20,12 @@ espeak-rs = { workspace = true, optional = true }
 
 [features]
 default = []
+# T010 chatterbox (layer B): in-process FFI to llama.cpp's native Chatterbox
+# TTS path via the workspace C++ shim (src/shim/chatterbox_shim.cpp) —
+# static libllama + libmtmd + libggml from the pinned checkout
+# (/teranux/third_party/llama.cpp @ 186eab1, release). No crate dep: the
+# link closure is emitted in build.rs.
+ggml-ffi = []
 # Kokoro-82M ONNX graph lane (T004). `load-dynamic`: no bundled runtime — the
 # 1.22.x dylib resolves at process start from TTS_ORT_DYLIB / ORT_DYLIB_PATH /
 # the durable default (mirrors te's nemo lane); `api-21`: API level for that
@@ -39,6 +45,10 @@ piper = ["dep:espeak-rs", "dep:ort", "dep:rand", "dep:rand_distr"]
 # Examples compile per-feature; the probes import lane deps, so gate them
 # (auto-discovery would break `cargo test -p tts-engine` on any single-feature
 # build).
+[build-dependencies]
+# T010 ggml-ffi: the C++ shim over llama.cpp is compiled by build.rs.
+cc = { workspace = true }
+
 [[example]]
 name = "ptts_session_probe"
 required-features = ["flow-ptts"]
@@ -54,3 +64,15 @@ required-features = ["flow-candle"]
 [[example]]
 name = "piper_lane_probe"
 required-features = ["piper"]
+
+[[example]]
+name = "flow_candle_parity_probe"
+required-features = ["flow-candle"]
+
+[[example]]
+name = "neucodec_ort_bench"
+required-features = ["graph-ort"]
+
+[[example]]
+name = "ggml_ffi_lane_probe"
+required-features = ["ggml-ffi"]

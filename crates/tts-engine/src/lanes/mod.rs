@@ -6,6 +6,9 @@ pub mod kokoro;
 #[cfg(feature = "flow-ptts")]
 pub mod flow_ptts;
 
+#[cfg(feature = "flow-candle")]
+pub mod flow_candle;
+
 use crate::types::{ModelRef, TtsLane};
 
 /// Lane-agnostic CPU dial default: logical/2 ≈ physical cores (SMT halves
@@ -29,6 +32,8 @@ pub fn make_lane(name: &str) -> Option<Box<dyn TtsLane>> {
         "kokoro" => Some(Box::new(self::kokoro::KokoroLane::new())),
         #[cfg(feature = "flow-ptts")]
         "flow-ptts" => Some(Box::new(self::flow_ptts::FlowPttsLane::new())),
+        #[cfg(feature = "flow-candle")]
+        "flow-candle" => Some(Box::new(self::flow_candle::FlowCandleLane::new())),
         _ => None,
     }
 }

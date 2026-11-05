@@ -7,6 +7,8 @@
 
 pub mod chunking;
 pub mod lanes;
+#[cfg(feature = "flow-candle")]
+pub mod candle_ptts;
 pub mod telemetry;
 pub mod types;
 pub mod wav;

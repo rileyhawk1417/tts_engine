@@ -11,6 +11,7 @@ sha2 = { workspace = true }
 ort = { workspace = true, optional = true }
 ptts = { workspace = true, optional = true }
 xn = { workspace = true, optional = true }
+candle-core = { workspace = true, optional = true }
 
 [features]
 default = []
@@ -21,3 +22,20 @@ default = []
 graph-ort = ["dep:ort"]
 # T006 Phonon flow-latent lane (gradium/phonon-31m-en, q8 gguf via ptts 0.6).
 flow-ptts = ["dep:ptts", "dep:xn"]
+# T008 candle Phonon port (from-scratch, oracle = ptts-0.6.0 / flow-ptts lane).
+flow-candle = ["dep:candle-core"]
+
+# Examples compile per-feature; the probes import lane deps, so gate them
+# (auto-discovery would break `cargo test -p tts-engine` on any single-feature
+# build).
+[[example]]
+name = "ptts_session_probe"
+required-features = ["flow-ptts"]
+
+[[example]]
+name = "flow_ptts_lane_probe"
+required-features = ["flow-ptts"]
+
+[[example]]
+name = "flow_candle_probe"
+required-features = ["flow-candle"]

@@ -11,3 +11,4 @@ tts-engine = { workspace = true }
 default = []
 graph-ort = ["tts-engine/graph-ort"]
 flow-ptts = ["tts-engine/flow-ptts"]
+flow-candle = ["tts-engine/flow-candle"]

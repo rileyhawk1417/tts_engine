@@ -20,4 +20,6 @@ ort = { version = "2.0.0-rc.15", default-features = false, features = ["load-dyn
 # + Mimi), no ggml, no FFI. `hf` gates the tokenizers-backed tokenizer reader;
 # `xn` is a direct dep only so the lane can set the rayon pool size dial.
 ptts = { version = "0.6.0", default-features = false, features = ["hf"] }
+# T008 candle port (flow-candle feature).
+candle-core = "0.11.1"
 xn = { version = "0.2.13", default-features = false }

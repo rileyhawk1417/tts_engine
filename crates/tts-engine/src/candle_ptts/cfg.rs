@@ -189,6 +189,25 @@ impl TTSConfig {
         }
     }
 
+    /// The `MimiConfig` used to encode the voice prompt — the dedicated
+    /// `speaker_mimi.mimi` if set, otherwise the main `mimi` (oracle
+    /// tts_model.rs `speaker_mimi_cfg`).
+    pub fn speaker_mimi_cfg(&self) -> &MimiConfig {
+        match self.speaker_mimi.as_ref() {
+            Some(s) => &s.mimi,
+            None => &self.mimi,
+        }
+    }
+
+    /// The mimi config with its GELU defaulted from the checkpoint's (oracle
+    /// tts_model.rs `mimi_with_gelu`).
+    pub fn mimi_with_gelu(&self, mimi: &MimiConfig) -> MimiConfig {
+        MimiConfig {
+            gelu: Some(mimi.gelu.unwrap_or_else(|| self.default_gelu())),
+            ..mimi.clone()
+        }
+    }
+
     /// Weights artifact to load, per the checkpoint (fallback matches the
     /// oracle default). f32 safetensors is the candle-lane contract; gguf
     /// stays the ptts lane's business.
@@ -275,6 +294,12 @@ impl MimiConfig {
     /// hop (ratios product = 120 -> 200 fps) is subdivided by the
     /// pre-quantizer downsample (stride = encoder_fps / frame_rate = 16,
     /// mimi.rs 118-133), hence `mimi.downsample.*` weights exist.
+    /// Width of the latents [`MimiEncoder::encode_to_latent`] returns
+    /// (oracle mimi.rs `encoder_latent_dim`).
+    pub fn encoder_latent_dim(&self) -> usize {
+        self.inner_dim.unwrap_or(self.dimension)
+    }
+
     pub fn frame_samples(&self) -> usize {
         (self.sample_rate as f64 / self.frame_rate).round() as usize
     }
@@ -287,8 +312,8 @@ pub type ParseError = String;
 /// Load a checkpoint's `config.json` (dir or parent-of-file tolerance at the
 /// lane level; this takes a file path).
 pub fn from_checkpoint(config_json: &std::path::Path) -> Result<TTSConfig, ParseError> {
-    let bytes = std::fs::read(config_json)
-        .map_err(|e| format!("read {}: {e}", config_json.display()))?;
+    let bytes =
+        std::fs::read(config_json).map_err(|e| format!("read {}: {e}", config_json.display()))?;
     let cfg: TTSConfig = serde_json::from_slice(&bytes)
         .map_err(|e| format!("parse {}: {e}", config_json.display()))?;
     Ok(cfg)

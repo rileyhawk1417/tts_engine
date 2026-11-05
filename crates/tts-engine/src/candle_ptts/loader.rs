@@ -4,6 +4,7 @@
 //! never fully resident unless evidenced as a win.
 
 use candle_core::{Device, Tensor};
+use candle_nn::Module as _;
 
 /// Maps upstream checkpoint names onto this crate's module names, dropping the
 /// tensors the runtime has no use for. Verbatim port of the oracle's
@@ -129,7 +130,6 @@ pub fn inventory(path: &std::path::Path) -> Result<Inventory, LoadError> {
     })
 }
 
-
 /// The tensor map a checkpoint loads into: every key remaps to Some(name)
 /// except those the remap table drops; shape/dtype checks happen per-request
 /// at `VarBuilder::get` (candle-nn's `SimpleBackend for HashMap<String,
@@ -150,8 +150,7 @@ impl Weights {
     pub fn from_safetensors(path: &std::path::Path) -> Result<Self, LoadError> {
         let map = candle_core::safetensors::load(path, &Device::Cpu)
             .map_err(|e| format!("safetensors load {}: {e}", path.display()))?;
-        let mut remapped =
-            std::collections::HashMap::with_capacity(map.len());
+        let mut remapped = std::collections::HashMap::with_capacity(map.len());
         let mut dropped = 0usize;
         for (k, v) in map {
             match remap_key(&k) {
@@ -165,15 +164,250 @@ impl Weights {
                 None => dropped += 1,
             }
         }
-        Ok(Self { map: remapped, dropped })
+        Ok(Self {
+            map: remapped,
+            dropped,
+        })
     }
 
     /// A `VarBuilder` over the owned map, f32 on CPU.
     pub fn var_builder(&self) -> crate::candle_ptts::nns::VB {
-        candle_nn::VarBuilder::from_tensors(
-            self.map.clone(),
-            candle_core::DType::F32,
-            &Device::Cpu,
+        candle_nn::VarBuilder::from_tensors(self.map.clone(), candle_core::DType::F32, &Device::Cpu)
+    }
+}
+
+// ---- voice assets (port of the oracle's voice halves of `loader.rs`) ----
+
+pub const VOICE_DIRS: [&str; 2] = ["voices", "embeddings"];
+
+/// A checkpoint's own voice, which [`checkpoint_voice_files`] registers as
+/// `default`.
+pub const DEFAULT_VOICE_FILE: &str = "default-voice.safetensors";
+
+/// Oracles' `SPEAKER_PROJ_WEIGHT`, for error messages in [`project_latents`].
+pub const SPEAKER_PROJ: &str = "flow_lm.speaker_proj_weight";
+
+/// Directory and voice name of a safetensors file relative to a checkpoint.
+/// Only files directly inside `voices/` or `embeddings/` are voice assets.
+pub fn voice_file_name(path: &str) -> Option<(&str, &str)> {
+    let (dir, file) = path.split_once('/')?;
+    let name = file.strip_suffix(".safetensors")?;
+    (VOICE_DIRS.contains(&dir) && !name.is_empty() && !name.contains('/')).then_some((dir, name))
+}
+
+/// Select voice names from paths listed by a checkpoint transport (the
+/// oracle's `voice_paths`; ours is dir-based so only the name filter ships).
+/// `voices/` takes precedence over `embeddings/` for the same voice name.
+fn voice_names_in(dir: &std::path::Path) -> Vec<(String, std::path::PathBuf)> {
+    let mut names = std::collections::BTreeMap::new();
+    for d in VOICE_DIRS {
+        let sub = dir.join(d);
+        let Ok(entries) = std::fs::read_dir(&sub) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+            if path.extension().and_then(|s| s.to_str()) == Some("safetensors") && !name.is_empty()
+            {
+                // BTreeMap: first dir wins ("voices" precedes "embeddings").
+                names.entry(name.to_string()).or_insert(path);
+            }
+        }
+    }
+    names.into_iter().collect()
+}
+
+/// Voice files a checkpoint ships: `default-voice.safetensors` at the root as
+/// `default`, plus every `voices|embeddings/*.safetensors` by file stem.
+pub fn checkpoint_voice_files(dir: &std::path::Path) -> Vec<(String, std::path::PathBuf)> {
+    let mut out = Vec::new();
+    let default = dir.join(DEFAULT_VOICE_FILE);
+    if default.is_file() {
+        out.push(("default".to_string(), default));
+    }
+    out.extend(voice_names_in(dir));
+    out
+}
+
+/// Verbatim port of the oracle's `check_model_ext`: a voice asset's header
+/// metadata must either omit `model_ext` or carry one of `embeddings_ext`'s
+/// values (format epoch, e.g. `"ba7a5a45@300"`).
+fn check_model_ext(
+    header: &std::collections::HashMap<String, String>,
+    label: &str,
+    embeddings_ext: &[String],
+) -> Result<(), LoadError> {
+    // A file that records no `model_ext` is accepted: older voices predate the metadata.
+    let Some(model_ext) = header.get("model_ext") else {
+        return Ok(());
+    };
+    if !embeddings_ext.iter().any(|ext| ext == model_ext) {
+        return Err(format!(
+            "voice embedding model_ext '{model_ext}' in {label} is not one of config \
+             embeddings_ext {embeddings_ext:?}"
+        ));
+    }
+    Ok(())
+}
+
+/// Read a safetensors file's header: the raw `__metadata__` map. The header is
+/// length-prefixed little-endian, exactly as the oracle's `read_safetensors_header`
+/// reads it.
+fn read_safetensors_header(
+    path: &std::path::Path,
+) -> Result<std::collections::HashMap<String, String>, LoadError> {
+    use std::io::Read;
+    let mut file =
+        std::fs::File::open(path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
+    let mut len_bytes = [0u8; 8];
+    file.read_exact(&mut len_bytes)
+        .map_err(|e| format!("cannot read header length from {}: {e}", path.display()))?;
+    let n = u64::from_le_bytes(len_bytes);
+    // A file that is not safetensors can claim an absurd header length; refuse
+    // to allocate on its word (oracle: 100 MiB cap).
+    if n > 100 * 1024 * 1024 {
+        return Err(format!(
+            "{} does not look like a safetensors file",
+            path.display()
+        ));
+    }
+    let mut buf = vec![0u8; n as usize];
+    file.read_exact(&mut buf)
+        .map_err(|e| format!("cannot read header from {}: {e}", path.display()))?;
+    let header: serde_json::Value = serde_json::from_slice(&buf).map_err(|e| {
+        format!(
+            "cannot parse safetensors header of voice file {}: {e}",
+            path.display()
         )
+    })?;
+    let metadata = header.get("__metadata__").cloned().unwrap_or_default();
+    serde_json::from_value::<std::collections::HashMap<String, String>>(metadata)
+        .map_err(|e| format!("bad __metadata__ map in {}: {e}", path.display()))
+}
+
+/// What a voice file holds, told apart by tensor name.
+enum VoiceTensor {
+    /// A voice embedding, `[T, dim]` or `[1, T, dim]`.
+    Emb,
+    /// Speaker-Mimi latents, `[C, T]` or `[1, C, T]`.
+    Latents,
+}
+
+pub const EMB_TENSOR: &str = "emb";
+pub const SPEAKER_WAVS_TENSOR: &str = "speaker_wavs";
+
+/// Port of the oracle's `load_voice_emb`: read a `.safetensors` voice asset,
+/// check its `model_ext` against `embeddings_ext`, and return the embedding as
+/// `[1, T, dim]` f32 on CPU. A `speaker_wavs` file needs the `speaker_proj`
+/// linear; `None` for such a file is an error (and ignored for `emb` files).
+pub fn load_voice_emb(
+    path: &std::path::Path,
+    embeddings_ext: Option<&[String]>,
+    speaker_proj: Option<&candle_nn::Linear>,
+) -> Result<Tensor, LoadError> {
+    let label = format!("voice file {}", path.display());
+    // The header first: a mismatch is refused before any tensor is decoded, and
+    // a file that is not safetensors gets a clearer error than the map gives.
+    if let Some(embeddings_ext) = embeddings_ext {
+        check_model_ext(&read_safetensors_header(path)?, &label, embeddings_ext)?;
+    }
+    let tensors = candle_core::safetensors::load(path, &Device::Cpu)
+        .map_err(|e| format!("voice load {}: {e}", path.display()))?;
+    voice_emb_from_map(&tensors, &label, speaker_proj)
+}
+
+/// The part of [`load_voice_emb`] that does not care where the file came from.
+/// `label` names the file in error messages.
+fn voice_emb_from_map(
+    tensors: &std::collections::HashMap<String, Tensor>,
+    label: &str,
+    speaker_proj: Option<&candle_nn::Linear>,
+) -> Result<Tensor, LoadError> {
+    let (name, kind) = if tensors.contains_key(EMB_TENSOR) {
+        (EMB_TENSOR, VoiceTensor::Emb)
+    } else if tensors.contains_key(SPEAKER_WAVS_TENSOR) {
+        (SPEAKER_WAVS_TENSOR, VoiceTensor::Latents)
+    } else {
+        let first = tensors
+            .keys()
+            .next()
+            .ok_or_else(|| format!("no tensors found in {label}"))?;
+        (first.as_str(), VoiceTensor::Emb)
+    };
+    let tensor = tensors.get(name).expect("tensor name just looked up");
+    let dims = tensor.dims().to_vec();
+    let tensor = match dims.as_slice() {
+        [a, b] => tensor
+            .reshape((1, *a, *b))
+            .map_err(|e| format!("voice reshape `{name}` in {label}: {e}"))?,
+        [_, _, _] => tensor.clone(),
+        _ => {
+            return Err(format!(
+                "voice tensor `{name}` in {label} has shape {dims:?}, expected two or \
+                 three dimensions"
+            ));
+        }
+    };
+    let emb = match kind {
+        VoiceTensor::Emb => tensor,
+        VoiceTensor::Latents => project_latents(&tensor, label, speaker_proj)?,
+    };
+    Ok(emb)
+}
+
+/// Port of the oracle's `project_latents`: voice latents arrive in the encoder
+/// layout `[1, C, T]`; the flow LM wants `[1, T, C]` through `speaker_proj`.
+pub fn project_latents(
+    tensor: &Tensor,
+    label: &str,
+    speaker_proj: Option<&candle_nn::Linear>,
+) -> Result<Tensor, LoadError> {
+    // [1, C, T] -> [1, T, C]
+    let latents = tensor
+        .transpose(1, 2)
+        .and_then(|t| t.contiguous())
+        .map_err(|e| format!("voice latents transpose in {label}: {e}"))?;
+    let Some(proj) = speaker_proj else {
+        return Err(format!(
+            "{label} holds `{SPEAKER_WAVS_TENSOR}` latents, but this checkpoint has no \
+             speaker projection (`{SPEAKER_PROJ}`) to turn them into a voice \
+             embedding. A GGUF written by an older `quantize --no-mimi-encoder` dropped \
+             it: regenerate the GGUF from the safetensors checkpoint, or use a \
+             precomputed `{EMB_TENSOR}` voice."
+        ));
+    };
+    let channels = latents
+        .dim(2)
+        .map_err(|e| format!("voice latents dims in {label}: {e}"))?;
+    let in_dim = proj.weight().dims()[1];
+    if channels != in_dim {
+        return Err(format!(
+            "`{SPEAKER_WAVS_TENSOR}` in {label} has {channels} channels but the speaker \
+             projection takes {in_dim}"
+        ));
+    }
+    proj.forward(&latents)
+        .map_err(|e| format!("speaker projection: {e}"))
+}
+
+#[cfg(test)]
+mod voice_tests {
+    use super::*;
+
+    #[test]
+    fn voice_file_name_rejects_escape_attempts() {
+        assert_eq!(
+            voice_file_name("voices/a.safetensors"),
+            Some(("voices", "a"))
+        );
+        for bad in [
+            "../a.safetensors",
+            "/etc/a.safetensors",
+            "voices/../../a.safetensors",
+            "C:a",
+        ] {
+            assert_eq!(voice_file_name(bad), None, "{bad}");
+        }
     }
 }

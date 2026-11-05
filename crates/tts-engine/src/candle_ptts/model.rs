@@ -25,11 +25,12 @@ fn to_vec1(t: &Tensor) -> Result<Vec<f32>> {
 use candle_nn::{Linear, Module};
 use std::collections::HashMap;
 
-use super::attention::{StreamingTransformer, StreamingTransformerState};
+use super::attention::{Kind, StreamingTransformer, StreamingTransformerState};
 use super::cfg as ccfg;
 use super::cfg::TTSConfig;
-use super::mlp::{lsd_decode, SimpleMLPAdaLN};
-use super::nns::{linear, VB};
+use super::mimi::{MimiDecoder, MimiDecoderState};
+use super::mlp::{SimpleMLPAdaLN, lsd_decode};
+use super::nns::{VB, linear};
 use super::rng::Rng;
 use super::tok::Tokenizer;
 
@@ -39,7 +40,7 @@ use super::tok::Tokenizer;
 /// condition provider.
 pub struct LutConditioner {
     pub tokenizer: Option<Box<dyn Tokenizer>>,
-    embed: Tensor, // [rows, output_dim]
+    embed: Tensor,                  // [rows, output_dim]
     learnt_padding: Option<Tensor>, // [1, 1, output_dim]
     learnt_padding_id: Option<u32>,
     pub dim: usize,
@@ -76,7 +77,14 @@ impl LutConditioner {
             }
             None => (embed, None),
         };
-        Ok(Self { tokenizer, embed, learnt_padding, learnt_padding_id, dim, output_dim })
+        Ok(Self {
+            tokenizer,
+            embed,
+            learnt_padding,
+            learnt_padding_id,
+            dim,
+            output_dim,
+        })
     }
 
     pub fn learnt_padding_id(&self) -> Option<u32> {
@@ -96,7 +104,9 @@ impl LutConditioner {
             let dev = self.embed.device();
             return Tensor::zeros((1, 0, self.output_dim), candle_core::DType::F32, dev);
         }
-        let rows = self.learnt_padding_id.map_or(self.embed.dims()[0], |id| id as usize);
+        let rows = self
+            .learnt_padding_id
+            .map_or(self.embed.dims()[0], |id| id as usize);
         if let Some(&id) = token_ids.iter().find(|&&id| id as usize >= rows) {
             return Err(candle_core::Error::Msg(format!(
                 "token id {id} is past this checkpoint's {rows}-entry embedding table: the \
@@ -127,8 +137,14 @@ fn default_condition(name: &str) -> Option<&'static str> {
 }
 
 enum Condition {
-    Lut { possible: Vec<String>, lut: LutConditioner },
-    Continuous { cfg: ccfg::ContinuousConditionerConfig, proj: Option<Linear> },
+    Lut {
+        possible: Vec<String>,
+        lut: LutConditioner,
+    },
+    Continuous {
+        cfg: ccfg::ContinuousConditionerConfig,
+        proj: Option<Linear>,
+    },
 }
 
 fn sin_embedding(position: f32, dim: usize, max_period: f32) -> Result<Vec<f32>> {
@@ -138,9 +154,14 @@ fn sin_embedding(position: f32, dim: usize, max_period: f32) -> Result<Vec<f32>>
         )));
     }
     let half = dim / 2;
-    let phases: Vec<f32> =
-        (0..half).map(|i| position / max_period.powf(i as f32 / (half - 1) as f32)).collect();
-    Ok(phases.iter().map(|p| p.cos()).chain(phases.iter().map(|p| p.sin())).collect())
+    let phases: Vec<f32> = (0..half)
+        .map(|i| position / max_period.powf(i as f32 / (half - 1) as f32))
+        .collect();
+    Ok(phases
+        .iter()
+        .map(|p| p.cos())
+        .chain(phases.iter().map(|p| p.sin()))
+        .collect())
 }
 
 /// The `condition_provider.conditioners` set, fused per the checkpoint fuser.
@@ -156,27 +177,35 @@ impl Conditioners {
         let mut conditions = Vec::with_capacity(config.conditioners.len());
         for cfg in config.conditioners.iter() {
             let name = cfg.name();
-            if let Some(fuser) = &config.fuser && !fuser.sum.iter().any(|s| s == name) {
+            if let Some(fuser) = &config.fuser
+                && !fuser.sum.iter().any(|s| s == name)
+            {
                 return Err(candle_core::Error::Msg(format!(
                     "conditioner {name:?} is not in the fuser's sum, the only fusion supported"
                 )));
             }
             let vb = vb.pp(name);
             let condition = match cfg {
-                ccfg::ConditionerConfig::Lut { lut, .. } => load_lut_condition(&vb, lut, output_dim)?,
+                ccfg::ConditionerConfig::Lut { lut, .. } => {
+                    load_lut_condition(&vb, lut, output_dim)?
+                }
                 ccfg::ConditionerConfig::Continuous { continuous, .. } => {
                     load_continuous_condition(&vb, continuous, output_dim)?
                 }
             };
             conditions.push((name.to_string(), condition));
         }
-        Ok(Self { conditions, device: vb.device().clone() })
+        Ok(Self {
+            conditions,
+            device: vb.device().clone(),
+        })
     }
 
     /// Oracle `Conditioners::sum` — the fuser's `[1, 1, d_model]` tensor.
     pub fn sum(&self, values: &HashMap<String, String>) -> Result<Option<Tensor>> {
-        if let Some(name) =
-            values.keys().find(|k| !self.conditions.iter().any(|(n, _)| n == *k))
+        if let Some(name) = values
+            .keys()
+            .find(|k| !self.conditions.iter().any(|(n, _)| n == *k))
         {
             return Err(candle_core::Error::Msg(format!(
                 "no conditioner named {name:?} in this checkpoint"
@@ -184,7 +213,11 @@ impl Conditioners {
         }
         let mut sum: Option<Tensor> = None;
         for (name, condition) in self.conditions.iter() {
-            let Some(value) = values.get(name).map(String::as_str).or_else(|| default_condition(name)) else {
+            let Some(value) = values
+                .get(name)
+                .map(String::as_str)
+                .or_else(|| default_condition(name))
+            else {
                 return Err(candle_core::Error::Msg(format!(
                     "conditioner {name:?} has no default, a value has to be given for it"
                 )));
@@ -219,6 +252,23 @@ impl Conditioners {
     }
 }
 
+/// The checkpoint's speaker projection, when it has one: the linear map from
+/// speaker-Mimi latents (`speaker_mimi_cfg().encoder_latent_dim()` wide) to
+/// the flow LM's `d_model` (oracle loader.rs `load_speaker_proj`). Kept in
+/// f32 like the embeddings it produces.
+fn load_speaker_proj(vb: &VB, cfg: &TTSConfig) -> Result<Option<candle_nn::Linear>> {
+    const SPEAKER_PROJ_WEIGHT: &str = "flow_lm.speaker_proj_weight";
+    if !vb.contains_tensor(SPEAKER_PROJ_WEIGHT) {
+        return Ok(None);
+    }
+    let shape = (
+        cfg.flow_lm.d_model,
+        cfg.speaker_mimi_cfg().encoder_latent_dim(),
+    );
+    let weight = vb.get(shape, SPEAKER_PROJ_WEIGHT)?;
+    Ok(Some(candle_nn::Linear::new(weight, None)))
+}
+
 fn load_lut_condition(
     vb: &VB,
     cfg: &ccfg::LutConditionerConfig,
@@ -226,7 +276,8 @@ fn load_lut_condition(
 ) -> Result<Condition> {
     if cfg.tokenizer != "noop" {
         return Err(candle_core::Error::Msg(format!(
-            "unsupported tokenizer {:?} for a lut conditioner", cfg.tokenizer
+            "unsupported tokenizer {:?} for a lut conditioner",
+            cfg.tokenizer
         )));
     }
     let Some(possible) = cfg.possible_values.clone() else {
@@ -252,10 +303,14 @@ fn load_continuous_condition(
         None
     } else {
         return Err(candle_core::Error::Msg(format!(
-            "conditioner of dim {} has no output_proj to {output_dim}", cfg.dim
+            "conditioner of dim {} has no output_proj to {output_dim}",
+            cfg.dim
         )));
     };
-    Ok(Condition::Continuous { cfg: cfg.clone(), proj })
+    Ok(Condition::Continuous {
+        cfg: cfg.clone(),
+        proj,
+    })
 }
 
 fn load_summed_conditions(
@@ -278,7 +333,7 @@ pub struct FlowLM {
     pub conditioner: LutConditioner,
     condition_providers: Option<Tensor>, // summed providers, broadcast into every step
     flow_net: SimpleMLPAdaLN,
-    transformer: StreamingTransformer,
+    pub transformer: StreamingTransformer,
     emb_std: Tensor,
     emb_mean: Tensor,
     bos_emb: Tensor,
@@ -335,21 +390,27 @@ impl FlowLM {
             num_time_conds,
             cfg.time_rms_norm,
         )?;
-        let z_proj = cfg.z_dim.map(|z| linear(vb, cfg.d_model, z, false)).transpose()?;
+        let z_proj = cfg
+            .z_dim
+            .map(|z| linear(vb, cfg.d_model, z, false))
+            .transpose()?;
 
-        let gelu_tanh = matches!(cfg.gelu.unwrap_or(config.default_gelu()), ccfg::Gelu::Tanh);
-        let transformer = StreamingTransformer::load(
+        let gelu = cfg.gelu.unwrap_or(config.default_gelu());
+        let mut transformer = StreamingTransformer::load(
             &vb.pp("transformer"),
             cfg.d_model,
             cfg.num_heads,
             cfg.num_layers,
             None,
             cfg.dim_feedforward,
+            None,
             cfg.max_period,
-            cfg.attn_dim.unwrap_or(cfg.d_model),
-            cfg.num_kv_heads.unwrap_or(cfg.num_heads),
-            gelu_tanh,
+            Kind::FlowLm {
+                attn_dim: cfg.attn_dim.unwrap_or(cfg.d_model),
+                num_kv_heads: cfg.num_kv_heads.unwrap_or(cfg.num_heads),
+            },
         )?;
+        transformer.set_gelu(gelu);
 
         let emb_std = vb.get(cfg.ldim, "emb_std")?;
         let emb_mean = vb.get(cfg.ldim, "emb_mean")?;
@@ -384,8 +445,12 @@ impl FlowLM {
 
     pub fn init_state(&self, batch_size: usize, sequence_length: usize) -> Result<FlowLMState> {
         let transformer_state =
-            self.transformer.init_state(batch_size, sequence_length, self.emb_std.device())?;
-        Ok(FlowLMState { transformer_state, conditions: None })
+            self.transformer
+                .init_state(batch_size, sequence_length, self.emb_std.device())?;
+        Ok(FlowLMState {
+            transformer_state,
+            conditions: None,
+        })
     }
 
     /// Run the backbone: concat text_embeddings + input, run transformer, strip prefix.
@@ -396,18 +461,19 @@ impl FlowLM {
         seq_len: usize,
         state: &mut FlowLMState,
     ) -> Result<Tensor> {
-        let input = match state.conditions.as_ref().or(self.condition_providers.as_ref()) {
+        let input = match state
+            .conditions
+            .as_ref()
+            .or(self.condition_providers.as_ref())
+        {
             Some(ns) => input.broadcast_add(ns)?,
             None => input.clone(),
         };
         let input = Tensor::cat(&[text_embeddings, &input], 1)?;
-        let out = self.transformer.forward(&input, &mut state.transformer_state)?;
-        let out = super::nns::layer_norm(
-            &out,
-            &self.out_norm_weight,
-            &self.out_norm_bias,
-            1e-5,
-        )?;
+        let out = self
+            .transformer
+            .forward(&input, &mut state.transformer_state)?;
+        let out = super::nns::layer_norm(&out, &self.out_norm_weight, &self.out_norm_bias, 1e-5)?;
         // Remove prefix, keep only last seq_len positions.
         let total = out.dim(1)?;
         let start = total - seq_len;
@@ -466,7 +532,10 @@ impl FlowLM {
         let t_out = self.backbone(&input, text_embeddings, s, state)?;
 
         let t_len = t_out.dim(1)?;
-        let t_out = t_out.narrow(1, t_len - 1, 1)?.contiguous()?.reshape((b, self.dim))?;
+        let t_out = t_out
+            .narrow(1, t_len - 1, 1)?
+            .contiguous()?
+            .reshape((b, self.dim))?;
         self.sample_from(&t_out, b, lsd_decode_steps, rng)
     }
 
@@ -491,14 +560,25 @@ impl FlowLM {
         let x = self.input_linear.forward(&sequence)?;
         let t_out = self.backbone(&x, text_embeddings, s, state)?;
         let t_len = t_out.dim(1)?;
-        let t_out = t_out.narrow(1, t_len - 1, 1)?.contiguous()?.reshape((b, self.dim))?;
+        let t_out = t_out
+            .narrow(1, t_len - 1, 1)?
+            .contiguous()?
+            .reshape((b, self.dim))?;
         let null_out = self.backbone(&x, text_embeddings, s, null_state)?;
-        let null_out =
-            null_out.narrow(1, t_len - 1, 1)?.contiguous()?.reshape((b, self.dim))?;
-        let t_out = t_out.sub(&null_out)?.affine(cfg_coef as f64, 0.0)?.add(&null_out)?;
+        let null_out = null_out
+            .narrow(1, t_len - 1, 1)?
+            .contiguous()?
+            .reshape((b, self.dim))?;
+        let t_out = t_out
+            .sub(&null_out)?
+            .affine(cfg_coef as f64, 0.0)?
+            .add(&null_out)?;
 
         let (latent, eos_logit) = self.sample_from(&t_out, b, lsd_decode_steps, rng)?;
-        Ok((latent, Self::eos_from_logit(&to_vec1(&eos_logit)?, eos_threshold)))
+        Ok((
+            latent,
+            Self::eos_from_logit(&to_vec1(&eos_logit)?, eos_threshold),
+        ))
     }
 
     /// Threshold an eos logit already on the host. Only row 0 decides; an
@@ -542,9 +622,12 @@ impl PrefixSink {
 
 pub struct TTSModel {
     pub flow_lm: FlowLM,
+    pub mimi: MimiDecoder,
+    speaker_proj: Option<candle_nn::Linear>,
     lsd_decode_steps: usize,
     eos_threshold: f32,
     cfg_null_text_empty: bool,
+    speaker_sink: Option<PrefixSink>,
     pub text_sink: Option<PrefixSink>,
 }
 
@@ -561,21 +644,28 @@ impl TTSModel {
         conditions: &HashMap<String, String>,
     ) -> Result<Self> {
         let flow_lm = FlowLM::load(&vb.pp("flow_lm"), tokenizer, config, conditions)?;
-        // Mimi decoder + speaker_proj + speaker sinks land with the mimi module.
-        let mut text_sink = None;
+        let mimi = MimiDecoder::load(&vb.pp("mimi"), &config.mimi_with_gelu(&config.mimi))?;
+        let speaker_proj = load_speaker_proj(vb, config)?;
+        let (mut speaker_sink, mut text_sink) = (None, None);
         for (name, sink) in config.prefix_sinks.iter() {
-            match name.as_str() {
-                "transcript_in_segment" => {
-                    let prefix = "flow_lm.conditioner";
-                    text_sink =
-                        Some(PrefixSink::load(vb, prefix, sink.dropped_token, config.flow_lm.d_model)?);
-                }
+            let (prefix, slot) = match name.as_str() {
+                "speaker_wavs" => (
+                    "flow_lm.condition_provider.conditioners.speaker_wavs",
+                    &mut speaker_sink,
+                ),
+                "transcript_in_segment" => ("flow_lm.conditioner", &mut text_sink),
                 other => {
                     return Err(candle_core::Error::Msg(format!(
-                        "unsupported prefix sink {other:?} (speaker sinks land with the mimi module)"
+                        "unsupported prefix sink {other:?}"
                     )));
                 }
-            }
+            };
+            *slot = Some(PrefixSink::load(
+                vb,
+                prefix,
+                sink.dropped_token,
+                config.flow_lm.d_model,
+            )?);
         }
         if !config.prefix_sinks.is_empty() && !config.cfg_null_audio_empty {
             return Err(candle_core::Error::Msg(
@@ -585,9 +675,12 @@ impl TTSModel {
 
         Ok(Self {
             flow_lm,
+            mimi,
+            speaker_proj,
             lsd_decode_steps: config.lsd_decode_steps,
             eos_threshold: config.eos_threshold,
             cfg_null_text_empty: config.cfg_null_text_empty,
+            speaker_sink,
             text_sink,
         })
     }
@@ -598,14 +691,21 @@ impl TTSModel {
     }
 
     /// Initialize flow LM state with the given sequence length budget.
-    pub fn init_flow_lm_state(&self, batch_size: usize, sequence_length: usize) -> Result<TTSState> {
-        Ok(TTSState { flow_lm_state: self.flow_lm.init_state(batch_size, sequence_length)? })
+    pub fn init_flow_lm_state(
+        &self,
+        batch_size: usize,
+        sequence_length: usize,
+    ) -> Result<TTSState> {
+        Ok(TTSState {
+            flow_lm_state: self.flow_lm.init_state(batch_size, sequence_length)?,
+        })
     }
 
     /// Set the state's conditions from the loaded fuser sum (voice override
     /// later: `voice.conditions.or(defaults)`).
     pub fn set_conditions(&self, state: &mut TTSState, conditions: Option<Tensor>) {
-        self.flow_lm.set_state_conditions(&mut state.flow_lm_state, conditions);
+        self.flow_lm
+            .set_state_conditions(&mut state.flow_lm_state, conditions);
     }
 
     /// Run flow LM step with text tokens. Increments state.
@@ -627,7 +727,11 @@ impl TTSModel {
     pub fn prompt_text_null(&self, state: &mut TTSState) -> Result<()> {
         if let Some(sink) = &self.text_sink {
             let token = sink.token(false);
-            let empty_latents = Tensor::zeros((1, 0, self.flow_lm.ldim), candle_core::DType::F32, token.device())?;
+            let empty_latents = Tensor::zeros(
+                (1, 0, self.flow_lm.ldim),
+                candle_core::DType::F32,
+                token.device(),
+            )?;
             return self.run_backbone_and_increment(state, token, &empty_latents);
         }
         if self.cfg_null_text_empty {
@@ -647,9 +751,34 @@ impl TTSModel {
         Ok(())
     }
 
-    /// Prompt with no voice — a no-op on checkpoints without a speaker sink
-    /// (the oracle's prompt_no_voice; audio prompts land with the mimi module).
-    pub fn prompt_no_voice(&self, _state: &mut TTSState) -> Result<()> {
+    /// Positions [`Self::prompt_audio`] fills for a `frames`-long voice prompt.
+    pub fn voice_prompt_len(&self, frames: usize) -> usize {
+        frames + usize::from(self.speaker_sink.is_some())
+    }
+
+    /// Prompt with no voice, which only adds the voice sink's dropped token, if any.
+    pub fn prompt_no_voice(&self, state: &mut TTSState) -> Result<()> {
+        match self.speaker_sink {
+            Some(_) => self.prompt_audio(state, &self.empty_text()?),
+            None => Ok(()),
+        }
+    }
+
+    /// Run flow LM step with audio conditioning. Increments state.
+    pub fn prompt_audio(&self, state: &mut TTSState, audio_conditioning: &Tensor) -> Result<()> {
+        let dev = audio_conditioning.device();
+        let empty_latents = Tensor::zeros((1, 0, self.flow_lm.ldim), candle_core::DType::F32, dev)?;
+        let text_embeddings = match &self.speaker_sink {
+            Some(sink) => {
+                let present = audio_conditioning.dims3()?.1 > 0;
+                Tensor::cat(
+                    &[&self.empty_text()?, sink.token(present), audio_conditioning],
+                    1,
+                )?
+            }
+            None => Tensor::cat(&[&self.empty_text()?, audio_conditioning], 1)?,
+        };
+        self.run_backbone_and_increment(state, &text_embeddings, &empty_latents)?;
         Ok(())
     }
 
@@ -659,8 +788,21 @@ impl TTSModel {
         text_embeddings: &Tensor,
         backbone_input_latents: &Tensor,
     ) -> Result<()> {
-        let input = self.flow_lm.input_linear.forward(backbone_input_latents)?;
-        let input = Tensor::cat(&[text_embeddings, &input], 1)?;
+        // The oracle runs `input_linear` over the latents even when there are
+        // zero frames (voice priming / text prompts pass `zeros((1,0,ldim))`),
+        // then cats text onto them. xn handles 0-length sequences; candle's
+        // `Linear::forward` reshapes through a hole shape and errors on 0
+        // elements. When the latents are empty the linear output is empty too,
+        // so `cat([text, empty]) == text` exactly — pass the text embeddings
+        // through directly (labeled deviation: algebraic identity, not silent
+        // drift).
+        let latents_frames = backbone_input_latents.dim(1)?;
+        let input = if latents_frames == 0 {
+            text_embeddings.clone()
+        } else {
+            let projected = self.flow_lm.input_linear.forward(backbone_input_latents)?;
+            Tensor::cat(&[text_embeddings, &projected], 1)?
+        };
         let _out = self
             .flow_lm
             .transformer
@@ -733,9 +875,45 @@ impl TTSModel {
         )
     }
 
-    /// De-normalize latents for the Mimi decoder — `latent * emb_std +
-    /// emb_mean` (oracle tts_model.rs `decode_latent`; the flow LM works in
-    /// normalized latent space).
+    /// The Mimi decoder's sample rate.
+    pub fn sample_rate(&self) -> usize {
+        self.mimi.sample_rate
+    }
+
+    /// Initialize the Mimi decoder state for a batch (`sequence_length`
+    /// reaches only the flow-LM attention kind, which a Mimi decoder has none
+    /// of, so any value is discarded — oracle tts_model.rs).
+    pub fn init_mimi_state(&self, batch_size: usize) -> Result<MimiDecoderState> {
+        self.mimi
+            .init_state(batch_size, 0, &candle_core::Device::Cpu)
+    }
+
+    /// The checkpoint's speaker projection, when it has one. Voice files holding
+    /// stored speaker latents go through it (oracle loader.rs `load_voice_emb`).
+    pub fn speaker_proj(&self) -> Option<&candle_nn::Linear> {
+        self.speaker_proj.as_ref()
+    }
+
+    /// De-normalize and decode one generated latent frame to audio — oracle
+    /// tts_model.rs `decode_latent`: denorm (`latent * emb_std + emb_mean`),
+    /// transpose [B, T, C] -> [B, C, T], f32, quantizer, Mimi decode step.
+    pub fn decode_latent(
+        &self,
+        latent: &Tensor,
+        mimi_state: &mut MimiDecoderState,
+    ) -> Result<Tensor> {
+        let denorm = latent
+            .broadcast_mul(&self.flow_lm.emb_std)?
+            .broadcast_add(&self.flow_lm.emb_mean)?;
+
+        // [B, T, C] -> [B, C, T]
+        let transposed = denorm.transpose(1, 2)?.contiguous()?;
+        // The flow LM already works in f32 on the candle lane.
+        let quantized = self.mimi.quantizer.forward(&transposed)?;
+        self.mimi.decode_from_latent_step(&quantized, mimi_state)
+    }
+
+    /// De-normalize latents for the Mimi decoder — kept for parity harnesses.
     pub fn denorm_latents(&self, latents: &Tensor) -> Result<Tensor> {
         latents
             .broadcast_mul(&self.flow_lm.emb_std)?

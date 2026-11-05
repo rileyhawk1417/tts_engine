@@ -360,7 +360,11 @@ impl crate::types::TtsLane for FlowPttsLane {
                 self.xn_threads, self.load_ms, self.synth_build_ms
             ),
             load_ms: self.load_ms,
-            chunk_policy: "ptts-sentence".to_string(),
+            // Grain = the oracle SpeechStream channel item: the decode thread
+            // drains up to LATENT_QUEUE=16 queued latents per decode call, so
+            // batch sizes (and the chunk count) depend on thread timing — not
+            // a fixed policy and not reproducible row-for-row.
+            chunk_policy: "ptts-decode-batch(max16)".to_string(),
             restart_voice: false,
         };
 

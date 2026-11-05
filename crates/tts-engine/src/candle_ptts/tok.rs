@@ -21,15 +21,17 @@ impl Tok {
 
     /// Loads the contents of a `tokenizer.json`.
     pub fn from_bytes(json: &[u8]) -> Result<Self, String> {
-        let tok =
-            tokenizers::Tokenizer::from_bytes(json).map_err(|e| format!("tokenizer: {e}"))?;
+        let tok = tokenizers::Tokenizer::from_bytes(json).map_err(|e| format!("tokenizer: {e}"))?;
         Ok(Tok(tok))
     }
 }
 
 impl Tokenizer for Tok {
     fn encode(&self, text: &str) -> Result<Vec<u32>, String> {
-        let encoded = self.0.encode(text, false).map_err(|e| format!("encode: {e}"))?;
+        let encoded = self
+            .0
+            .encode(text, false)
+            .map_err(|e| format!("encode: {e}"))?;
         Ok(encoded.get_ids().to_vec())
     }
 

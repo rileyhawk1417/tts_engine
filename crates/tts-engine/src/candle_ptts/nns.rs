@@ -15,7 +15,11 @@ pub type VB = candle_nn::VarBuilder<'static>;
 /// `xn::nn::Linear::load` (bias-free) / `Linear::load_b` (with bias).
 pub fn linear(vb: &VB, in_dim: usize, out_dim: usize, bias: bool) -> Result<Linear> {
     let w = vb.get((out_dim, in_dim), "weight")?;
-    let b = if bias { Some(vb.get(out_dim, "bias")?) } else { None };
+    let b = if bias {
+        Some(vb.get(out_dim, "bias")?)
+    } else {
+        None
+    };
     Ok(Linear::new(w, b))
 }
 
@@ -98,8 +102,12 @@ fn rope_one(x: &Tensor, tables: &RopeTables) -> Result<Tensor> {
     let sin = tables.sin.narrow(0, 0, t)?.reshape((1, 1, t, half))?;
     // dst[2i]   = src[2i] * cos - src[2i+1] * sin
     // dst[2i+1] = src[2i] * sin + src[2i+1] * cos
-    let o_a = a.broadcast_mul(&cos)?.broadcast_sub(&c.broadcast_mul(&sin)?)?;
-    let o_c = a.broadcast_mul(&sin)?.broadcast_add(&c.broadcast_mul(&cos)?)?;
+    let o_a = a
+        .broadcast_mul(&cos)?
+        .broadcast_sub(&c.broadcast_mul(&sin)?)?;
+    let o_c = a
+        .broadcast_mul(&sin)?
+        .broadcast_add(&c.broadcast_mul(&cos)?)?;
     let out = Tensor::cat(&[o_a.unsqueeze(4)?, o_c.unsqueeze(4)?], 4)?; // [b, h, t, half, 2]
     let out = out.reshape((b, h, t, d))?;
     let out = out.transpose(1, 2)?.contiguous()?; // back to [b, t, h, d]

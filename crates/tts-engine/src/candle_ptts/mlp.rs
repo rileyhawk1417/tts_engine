@@ -11,11 +11,11 @@
 //! - FinalLayer: constant ones/zeros LayerNorm eps 1e-6, then modulate, then a
 //!   biased linear.
 
-use candle_core::{Tensor, D};
+use candle_core::{D, Tensor};
 use candle_nn::{LayerNorm, Linear, Module};
 
 use super::cfg::TimeRmsNorm;
-use super::nns::{layer_norm_const, layer_norm_load, linear, VB};
+use super::nns::{VB, layer_norm_const, layer_norm_load, linear};
 
 /// `modulate` — exact oracle order.
 fn modulate(x: &Tensor, shift: &Tensor, scale: &Tensor) -> candle_core::Result<Tensor> {
@@ -32,13 +32,24 @@ pub struct TimestepEmbedder {
 }
 
 impl TimestepEmbedder {
-    pub fn load(vb: &VB, hidden_size: usize, frequency_embedding_size: usize, norm: TimeRmsNorm) -> candle_core::Result<Self> {
+    pub fn load(
+        vb: &VB,
+        hidden_size: usize,
+        frequency_embedding_size: usize,
+        norm: TimeRmsNorm,
+    ) -> candle_core::Result<Self> {
         let mlp = vb.pp("mlp");
         let linear1 = linear(&mlp.pp("0"), frequency_embedding_size, hidden_size, true)?;
         let linear2 = linear(&mlp.pp("2"), hidden_size, hidden_size, true)?;
         let alpha = mlp.get(hidden_size, "3.alpha")?;
         let freqs = vb.get(frequency_embedding_size / 2, "freqs")?;
-        Ok(Self { linear1, linear2, alpha, freqs, norm })
+        Ok(Self {
+            linear1,
+            linear2,
+            alpha,
+            freqs,
+            norm,
+        })
     }
 
     /// t: [batch, 1] → [batch, hidden]
@@ -63,7 +74,10 @@ impl TimestepEmbedder {
                 // oracle's `T::from_f32(1.0 / n)` (avoids double rounding).
                 let m = (1.0f32 / n) as f64;
                 let ms = x.sqr()?.sum_keepdim(last)?.affine(m, 0.0)?;
-                x.broadcast_mul(&ms.affine(1.0, eps as f64)?.recip()?)
+                // oracle: ms.add_scalar(eps)?.rsqrt() — 1/sqrt(mean+eps). candle has no
+                // rsqrt op, so compose sqrt().recip(); recip() alone was the step-0
+                // parity divergence (time embeddings off by ~1e5).
+                x.broadcast_mul(&ms.affine(1.0, eps as f64)?.sqrt()?.recip()?)
                     .and_then(|v| v.broadcast_mul(&self.alpha))
             }
             TimeRmsNorm::RmsVar => {
@@ -71,6 +85,7 @@ impl TimestepEmbedder {
                 let var = x.broadcast_sub(&mean)?.sqr()?.sum_keepdim(last)?;
                 let inv = var
                     .affine((1.0f32 / (n - 1.0f32)) as f64, eps as f64)?
+                    .sqrt()?
                     .recip()?;
                 x.broadcast_mul(&inv)?.broadcast_mul(&self.alpha)
             }
@@ -79,9 +94,9 @@ impl TimestepEmbedder {
 }
 
 pub struct ResBlock {
-    in_ln: LayerNorm,        // eps 1e-6
-    mlp_linear1: Linear,     // bias
-    mlp_linear2: Linear,     // bias
+    in_ln: LayerNorm,           // eps 1e-6
+    mlp_linear1: Linear,        // bias
+    mlp_linear2: Linear,        // bias
     ada_ln_silu_linear: Linear, // [3C, C], bias
 }
 
@@ -93,7 +108,12 @@ impl ResBlock {
         let mlp_linear2 = linear(&mlp.pp("2"), channels, channels, true)?;
         let ada = vb.pp("adaLN_modulation");
         let ada_ln_silu_linear = linear(&ada.pp("1"), channels, 3 * channels, true)?;
-        Ok(Self { in_ln, mlp_linear1, mlp_linear2, ada_ln_silu_linear })
+        Ok(Self {
+            in_ln,
+            mlp_linear1,
+            mlp_linear2,
+            ada_ln_silu_linear,
+        })
     }
 
     pub fn forward(&self, x: &Tensor, y: &Tensor) -> candle_core::Result<Tensor> {
@@ -119,8 +139,8 @@ impl ResBlock {
 }
 
 pub struct FinalLayer {
-    norm_final: LayerNorm, // ones/zeros, eps 1e-6
-    linear: Linear,        // [out, model], bias
+    norm_final: LayerNorm,      // ones/zeros, eps 1e-6
+    linear: Linear,             // [out, model], bias
     ada_ln_silu_linear: Linear, // [2C, C], bias
 }
 
@@ -130,7 +150,11 @@ impl FinalLayer {
         let out_linear = linear(&vb.pp("linear"), model_channels, out_channels, true)?;
         let ada = vb.pp("adaLN_modulation");
         let ada_ln_silu_linear = linear(&ada.pp("1"), model_channels, 2 * model_channels, true)?;
-        Ok(Self { norm_final, linear: out_linear, ada_ln_silu_linear })
+        Ok(Self {
+            norm_final,
+            linear: out_linear,
+            ada_ln_silu_linear,
+        })
     }
 
     pub fn forward(&self, x: &Tensor, c: &Tensor) -> candle_core::Result<Tensor> {
@@ -148,8 +172,8 @@ impl FinalLayer {
 
 pub struct SimpleMLPAdaLN {
     time_embeds: Vec<TimestepEmbedder>,
-    cond_embed: Linear,      // [model, cond], bias
-    input_proj: Linear,      // [model, in], bias
+    cond_embed: Linear, // [model, cond], bias
+    input_proj: Linear, // [model, in], bias
     res_blocks: Vec<ResBlock>,
     final_layer: FinalLayer,
     pub num_time_conds: usize,
@@ -183,7 +207,14 @@ impl SimpleMLPAdaLN {
             res_blocks.push(ResBlock::load(&vb.pp("res_blocks").pp(i), model_channels)?);
         }
         let final_layer = FinalLayer::load(&vb.pp("final_layer"), model_channels, out_channels)?;
-        Ok(Self { time_embeds, cond_embed, input_proj, res_blocks, final_layer, num_time_conds })
+        Ok(Self {
+            time_embeds,
+            cond_embed,
+            input_proj,
+            res_blocks,
+            final_layer,
+            num_time_conds,
+        })
     }
 
     /// Forward pass.
@@ -229,8 +260,11 @@ pub fn lsd_decode(
         // s/t tensors matching x_0 shape but with last dim = 1.
         let mut shape: Vec<usize> = x_0.dims().to_vec();
         *shape.last_mut().unwrap() = 1;
-        let s = Tensor::full(s_val as f64, shape.clone(), dev)?;
-        let t = Tensor::full(t_val as f64, shape, dev)?;
+        // `full` infers dtype from the value: the oracle builds these in f32
+        // (`T::from_f32`), so pass the f32s directly — an f64 here poisons the
+        // whole flow path with an F64 tensor.
+        let s = Tensor::full(s_val, shape.clone(), dev)?;
+        let t = Tensor::full(t_val, shape, dev)?;
 
         let flow_dir = flow_net.forward(transformer_out, &[&s, &t], &current)?;
         let step_scale = 1.0f32 / num_steps as f32;

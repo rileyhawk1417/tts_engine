@@ -27,7 +27,10 @@ impl NormalRng {
     pub fn new(temperature: f32, seed: u64) -> Result<Self, String> {
         let distr = rand_distr::Normal::new(0f32, temperature.sqrt())
             .map_err(|e| format!("invalid normal distribution: {e}"))?;
-        Ok(Self { inner: rand::rngs::StdRng::seed_from_u64(seed), distr })
+        Ok(Self {
+            inner: rand::rngs::StdRng::seed_from_u64(seed),
+            distr,
+        })
     }
 }
 

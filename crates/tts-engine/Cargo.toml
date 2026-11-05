@@ -29,7 +29,7 @@ flow-ptts = ["dep:ptts", "dep:xn"]
 # T008 candle Phonon port (from-scratch, oracle = ptts-0.6.0 / flow-ptts lane).
 # rand pins match the oracle sampler exactly (rng.rs), tokenizers 0.23.1 is the
 # oracle's tokenizer crate version.
-flow-candle = ["dep:candle-core", "dep:candle-nn", "dep:rand", "dep:rand_distr", "dep:tokenizers"]
+flow-candle = ["dep:candle-core", "dep:candle-nn", "dep:rand", "dep:rand_distr", "dep:tokenizers", "dep:ptts"]
 
 # Examples compile per-feature; the probes import lane deps, so gate them
 # (auto-discovery would break `cargo test -p tts-engine` on any single-feature

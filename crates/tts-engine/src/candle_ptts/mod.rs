@@ -8,9 +8,15 @@
 //! deviations are experiments on top, labeled as such.
 pub mod attention;
 pub mod cfg;
+pub mod conv;
 pub mod loader;
+pub mod mimi;
 pub mod mlp;
 pub mod model;
 pub mod nns;
+pub mod plan;
+pub mod resample;
 pub mod rng;
+pub mod seanet;
+pub mod synth;
 pub mod tok;

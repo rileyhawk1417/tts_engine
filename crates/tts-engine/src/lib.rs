@@ -5,10 +5,10 @@
 //! telemetry recorder that emits `chunks.jsonl`, and the canonical WAV writer.
 //! Lanes live behind the `TtsLane` trait; telemetry never lives lane-side.
 
-pub mod chunking;
-pub mod lanes;
 #[cfg(feature = "flow-candle")]
 pub mod candle_ptts;
+pub mod chunking;
+pub mod lanes;
 pub mod telemetry;
 pub mod types;
 pub mod wav;

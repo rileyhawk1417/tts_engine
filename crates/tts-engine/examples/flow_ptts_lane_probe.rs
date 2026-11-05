@@ -28,9 +28,7 @@ fn main() {
     let warm_stream = lane.synthesize(&warm_req).expect("warm synthesize");
     let setup = t1.elapsed();
     let t2 = Instant::now();
-    let mut first = 0usize;
-    let n = warm_stream.chunks.count();
-    first = n;
+    let first = warm_stream.chunks.count();
     println!(
         "# warmup setup_ms {} first_pull_first_chunk_ms {} samples {first}",
         setup.as_millis(),
@@ -39,7 +37,9 @@ fn main() {
 
     for rep in 0..3 {
         let ta = Instant::now();
-        let stream = lane.synthesize(&synreq("The engine loads its weights straight from disk.")).expect("synth");
+        let stream = lane
+            .synthesize(&synreq("The engine loads its weights straight from disk."))
+            .expect("synth");
         let setup = ta.elapsed();
         let mut total_samples = 0usize;
         let mut ttfa_ms = 0u128;

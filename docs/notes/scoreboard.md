@@ -98,3 +98,34 @@ f32 row (T009): TTFA 53 ms probe / 252 ms lane, rtf 3.36, but FAILS
 byte-identity at threads=1 (nondet emissions) — ungated, experimental dial
 TTS_PTTS_QUANT=f32. Default stays q8.
 
+
+## 2026-11-05h — hard-500 flow-ptts complete (T009, untrusted gate as measured)
+
+Run `eval/results/20261105-1152-flow-ptts-hard-t007` (q8, default threads,
+seed 42): 500/500 rows, **identity 489 pass / 11 FAIL → verdict untrusted
+(gate law held — the 11 FAILs are the known threads>1 xn nondeterminism
+[q-law L2]; FAIL rows cluster in low-RTF/load windows)**.
+
+PASS-only medians (489 rows, nemo judge):
+
+| metric | value |
+|---|---|
+| WER med | 40.00 |
+| raw WER med | 60.00 |
+| TTFA med | 2314 ms (mean ~2250) |
+| rtf med | 0.949 |
+| peak RSS med | 177 MB |
+
+Category med WER (pass rows): percents/plain_dates/versions 0.00 ·
+ordinals/quantities/times 16.67 · abbreviations/units 20.00 ·
+hash_numbers 33.33 · currency/alnum_codes/order_numbers/ranges 40–42.86 ·
+math_symbols 46.43 · slashed_dates 50.00 · temperature 60.00 ·
+mixed_fields 111.11 · short_replies 150.00 · phones 157.14 ·
+files_urls 100.00.
+
+Reading: q8 flow-ptts decodes the digit-heavy hard corpus but WER medians
+are dominated by normalization-judge disagreements on formatted text
+(phones / short_replies / mixed_fields >100 = judge transcript mismatch,
+not just audio quality — same pattern as kokoro hard-80 42.03/49.62 but
+larger). Trusted verdict + M2 row needs the `TTS_XN_THREADS=1` rerun
+(seeded path, measured rtf 0.72 / identity PASS on 1t text).

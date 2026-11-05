@@ -8,12 +8,12 @@ cd "$(dirname "$0")/.."
 # The kokoro (ORT) and flow-ptts (Phonon/xn) lanes live behind cargo features;
 # run every cargo step with them so gate = shipped reality.
 cargo fmt --all
-cargo clippy --workspace --all-targets --features graph-ort,flow-ptts -- -D warnings
-cargo test --workspace --features graph-ort,flow-ptts --quiet
-cargo build --workspace --features graph-ort,flow-ptts -q
+cargo clippy --workspace --all-targets --features graph-ort,flow-ptts,flow-candle -- -D warnings
+cargo test --workspace --features graph-ort,flow-ptts,flow-candle --quiet
+cargo build --workspace --features graph-ort,flow-ptts,flow-candle -q
 
 # e2e runs the release binary — the shipped artifact (xn debug build is ~8x slower)
-cargo build --workspace --release --features graph-ort,flow-ptts -q
+cargo build --workspace --release --features graph-ort,flow-ptts,flow-candle -q
 
 mkdir -p out
 TEXT="Hello from the seam. The smoke lane writes honest silence and honest telemetry, one row per chunk."

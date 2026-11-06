@@ -21,6 +21,15 @@ pub fn remap_key(name: &str) -> Option<String> {
     let mut name = name.to_string();
 
     // Order matters: more specific replacements first.
+    // Pocket-tts names its speaker_wavs sink tensor after the training-side
+    // bos-before-voice frame (`insert_bos_before_voice: true`): the [1, 1,
+    // d_model] frame that precedes the voice segment. The KV-cache voices in
+    // that checkpoint family bake it into their caches, and the tensor feeds
+    // PrefixSink as `...speaker_wavs.sink` when a prompt-audio path still runs.
+    name = name.replace(
+        "flow_lm.bos_before_voice",
+        "flow_lm.condition_provider.conditioners.speaker_wavs.sink",
+    );
     name = name.replace(
         "flow_lm.condition_provider.conditioners.speaker_wavs.output_proj.weight",
         "flow_lm.speaker_proj_weight",
@@ -286,7 +295,7 @@ fn read_safetensors_header(
         .map_err(|e| format!("bad __metadata__ map in {}: {e}", path.display()))
 }
 
-/// What a voice file holds, told apart by tensor name.
+/// What a voice file holds, told apart by tensor name / tensor keys.
 enum VoiceTensor {
     /// A voice embedding, `[T, dim]` or `[1, T, dim]`.
     Emb,
@@ -297,15 +306,36 @@ enum VoiceTensor {
 pub const EMB_TENSOR: &str = "emb";
 pub const SPEAKER_WAVS_TENSOR: &str = "speaker_wavs";
 
-/// Port of the oracle's `load_voice_emb`: read a `.safetensors` voice asset,
-/// check its `model_ext` against `embeddings_ext`, and return the embedding as
-/// `[1, T, dim]` f32 on CPU. A `speaker_wavs` file needs the `speaker_proj`
-/// linear; `None` for such a file is an error (and ignored for `emb` files).
-pub fn load_voice_emb(
+/// A voice file's payload after [`load_voice`]: what prompts the base state
+/// with. Pocket-tts ships pre-baked attention caches instead of embeddings.
+#[derive(Clone)]
+pub enum LoadedVoice {
+    /// The flow-LM conditioning embedding `[1, T, d_model]` (phonon-style).
+    Emb(Tensor),
+    /// Per-layer `(k, v)` planes `[1, F, H, D]` plus the layer offset the
+    /// file records, in layer order.
+    Kv(Vec<(Tensor, Tensor, usize)>),
+}
+
+impl LoadedVoice {
+    /// Prompt length in frames: the embedding's T, or the voice cache's end
+    /// offset (pocket keeps them aligned across layers, verified at load).
+    pub fn frames(&self) -> Result<usize, candle_core::Error> {
+        match self {
+            LoadedVoice::Emb(t) => t.dim(1),
+            LoadedVoice::Kv(layers) => Ok(layers.iter().map(|(_, _, off)| *off).max().unwrap_or(0)),
+        }
+    }
+}
+
+/// Read a `.safetensors` voice asset and return its payload. A file holding
+/// `...self_attn/cache` entries is a pocket-tts pre-baked voice cache; else an
+/// `emb` / first-key embedding; else `speaker_wavs` latents.
+pub fn load_voice(
     path: &std::path::Path,
     embeddings_ext: Option<&[String]>,
     speaker_proj: Option<&candle_nn::Linear>,
-) -> Result<Tensor, LoadError> {
+) -> Result<LoadedVoice, LoadError> {
     let label = format!("voice file {}", path.display());
     // The header first: a mismatch is refused before any tensor is decoded, and
     // a file that is not safetensors gets a clearer error than the map gives.
@@ -314,16 +344,35 @@ pub fn load_voice_emb(
     }
     let tensors = candle_core::safetensors::load(path, &Device::Cpu)
         .map_err(|e| format!("voice load {}: {e}", path.display()))?;
-    voice_emb_from_map(&tensors, &label, speaker_proj)
+    voice_from_map(&tensors, &label, speaker_proj)
 }
 
-/// The part of [`load_voice_emb`] that does not care where the file came from.
-/// `label` names the file in error messages.
-fn voice_emb_from_map(
+/// The map part of [`load_voice`]. `label` names the file in error messages.
+fn voice_from_map(
     tensors: &std::collections::HashMap<String, Tensor>,
     label: &str,
     speaker_proj: Option<&candle_nn::Linear>,
-) -> Result<Tensor, LoadError> {
+) -> Result<LoadedVoice, LoadError> {
+    let layer = |k: &str| -> Option<usize> {
+        // `transformer.layers.{i}.self_attn/cache` — parse the layer index.
+        k.strip_prefix("transformer.layers.")
+            .and_then(|rest| rest.split('.').next()?.parse::<usize>().ok())
+    };
+    if tensors.keys().any(|k| k.ends_with("self_attn/cache")) {
+        let mut cache_layers = tensors
+            .keys()
+            .filter_map(|k| {
+                if k.ends_with("self_attn/cache") {
+                    layer(k)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<usize>>();
+        cache_layers.sort_unstable();
+        cache_layers.dedup();
+        return voice_cache_from_map(tensors, &cache_layers, label);
+    }
     let (name, kind) = if tensors.contains_key(EMB_TENSOR) {
         (EMB_TENSOR, VoiceTensor::Emb)
     } else if tensors.contains_key(SPEAKER_WAVS_TENSOR) {
@@ -353,7 +402,104 @@ fn voice_emb_from_map(
         VoiceTensor::Emb => tensor,
         VoiceTensor::Latents => project_latents(&tensor, label, speaker_proj)?,
     };
-    Ok(emb)
+    Ok(LoadedVoice::Emb(emb))
+}
+
+/// Parse a pocket-tts pre-baked voice cache: per layer
+/// `transformer.layers.{i}.self_attn/cache` `[2, 1, F, H, D]` f32 (plane 0 =
+/// keys, plane 1 = values) and `.../offset` `[1]` i64 = that layer's filled
+/// prefix length. Layer offsets must agree (pocket's `complete_kv` keeps the
+/// voice segment aligned across layers; the base state's prompt length is one
+/// number shared by all layers).
+fn voice_cache_from_map(
+    tensors: &std::collections::HashMap<String, Tensor>,
+    layers: &[usize],
+    label: &str,
+) -> Result<LoadedVoice, LoadError> {
+    if layers.is_empty() {
+        return Err(format!("no cache planes found in {label}"));
+    }
+    let mut out = Vec::with_capacity(layers.len());
+    let mut offset0: Option<usize> = None;
+    for &l in layers {
+        let cache = tensors
+            .get(&format!("transformer.layers.{l}.self_attn/cache"))
+            .ok_or_else(|| format!("layer {l} cache missing in {label}"))?;
+        let offset_t = tensors
+            .get(&format!("transformer.layers.{l}.self_attn/offset"))
+            .ok_or_else(|| format!("layer {l} offset missing in {label}"))?;
+        let [2, 1, f, h, d] = cache.dims() else {
+            return Err(format!(
+                "layer {l} cache in {label} has shape {:?}, expected [2, 1, F, H, D]",
+                cache.dims()
+            ));
+        };
+        let _ = (f, h, d);
+        // Plane 0 = keys, plane 1 = values; squeeze the size-1 batch dim.
+        let (k, v) = match (
+            cache.narrow(0, 0, 1).and_then(|t| t.squeeze(0)),
+            cache.narrow(0, 1, 1).and_then(|t| t.squeeze(0)),
+        ) {
+            (Ok(k), Ok(v)) => (k, v),
+            (Err(e), _) | (_, Err(e)) => {
+                return Err(format!("layer {l} cache planes in {label}: {e}"));
+            }
+        };
+        let offsets = offset_t
+            .to_vec1::<i64>()
+            .map_err(|e| format!("layer {l} offset in {label}: {e}"))?;
+        let [offset] = offsets.as_slice() else {
+            return Err(format!(
+                "layer {l} offset in {label} has {} entries, expected 1",
+                offsets.len()
+            ));
+        };
+        if *offset < 0 {
+            return Err(format!("layer {l} offset is negative in {label}"));
+        }
+        let offset = *offset as usize;
+        let filled = k
+            .dim(1)
+            .map_err(|e| format!("layer {l} cache k dims in {label}: {e}"))?;
+        if offset > filled {
+            return Err(format!(
+                "layer {l} cache in {label} records {offset} filled frames but only holds {filled}"
+            ));
+        }
+        match offset0 {
+            None => offset0 = Some(offset),
+            Some(prev) if prev != offset => {
+                return Err(format!(
+                    "layer {l} offset {offset} disagrees with layer {}'s \
+                     {prev} in {label}: pocket voice caches keep the voice \
+                     segment aligned across layers",
+                    layers[0]
+                ));
+            }
+            _ => {}
+        }
+        out.push((k, v, offset));
+    }
+    Ok(LoadedVoice::Kv(out))
+}
+
+/// Port of the oracle's `load_voice_emb`: read a `.safetensors` voice asset,
+/// check its `model_ext` against `embeddings_ext`, and return the embedding as
+/// `[1, T, dim]` f32 on CPU. A `speaker_wavs` file needs the `speaker_proj`
+/// linear; `None` for such a file is an error (and ignored for `emb` files).
+pub fn load_voice_emb(
+    path: &std::path::Path,
+    embeddings_ext: Option<&[String]>,
+    speaker_proj: Option<&candle_nn::Linear>,
+) -> Result<Tensor, LoadError> {
+    match load_voice(path, embeddings_ext, speaker_proj)? {
+        LoadedVoice::Emb(t) => Ok(t),
+        LoadedVoice::Kv(_) => Err(format!(
+            "voice file {} holds pre-baked KV caches (pocket-tts family); this \
+             caller only supports embedding voices",
+            path.display()
+        )),
+    }
 }
 
 /// Port of the oracle's `project_latents`: voice latents arrive in the encoder

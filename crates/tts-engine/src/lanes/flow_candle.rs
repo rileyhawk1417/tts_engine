@@ -150,16 +150,38 @@ impl TtsLane for FlowCandleLane {
                 .map_err(|e| LaneError::Load(e.to_string()))?;
         // Oracle `Synth::load`: voices load with the checkpoint. The default
         // voice file registers as `default`; directory voices register by
-        // file stem (`voices/` wins over `embeddings/`).
+        // file stem (`voices/` wins over `embeddings/`). Pocket-tts voice
+        // files carry pre-baked KV caches — `load_voice` returns the payload
+        // as-is, and the family gate below refuses mismatches.
         let mut voices = Vec::new();
         for (name, path) in crate::candle_ptts::loader::checkpoint_voice_files(&dir) {
-            let emb = crate::candle_ptts::loader::load_voice_emb(
+            let payload = crate::candle_ptts::loader::load_voice(
                 &path,
                 cfg.embeddings_ext.as_deref(),
                 model.speaker_proj(),
             )
             .map_err(LaneError::Load)?;
-            voices.push(crate::candle_ptts::synth::Voice { name, emb });
+            voices.push(crate::candle_ptts::synth::Voice { name, payload });
+        }
+        // Family law: the voice payload kind must match the checkpoint family
+        // (phonon = embeddings, pocket = pre-baked KV caches). A mixed
+        // checkpoint would silently mix two incompatible voice prompt paths.
+        for v in &voices {
+            let kind = match &v.payload {
+                crate::candle_ptts::loader::LoadedVoice::Emb(_) => "emb",
+                crate::candle_ptts::loader::LoadedVoice::Kv(_) => "kv",
+            };
+            let want = match cfg.family {
+                crate::candle_ptts::cfg::Family::Phonon => "emb",
+                crate::candle_ptts::cfg::Family::Pocket => "kv",
+            };
+            if kind != want {
+                return Err(LaneError::Load(format!(
+                    "voice '{}' is a {kind} file but the config declares family {:?} \
+                     (expects {want} voices)",
+                    v.name, cfg.family
+                )));
+            }
         }
         let weights_label = weights_path
             .file_name()
@@ -190,18 +212,43 @@ impl TtsLane for FlowCandleLane {
             .as_ref()
             .ok_or_else(|| LaneError::Synth("flow-candle checkpoint not loaded".into()))?;
 
+        // Voice resolution mirrors flow-ptts: Default rides the synth default
+        // (checkpoint's `default` voice), Id must be a registered voice.
+        // Pocket-tts has no `default` voice file — its fork falls back to the
+        // named constant voice (`DEFAULT_VOICE_FALLBACK = "alba"`).
+        let fallback: Option<&str> = match req.voice.as_ref().unwrap_or(&VoiceRef::Default) {
+            VoiceRef::Default => cp.cfg.fallback_voice(),
+            _ => None,
+        };
         let voice_label = match req.voice.as_ref().unwrap_or(&VoiceRef::Default) {
-            VoiceRef::Default => "default".to_string(),
+            VoiceRef::Default => {
+                // Label the actually-used voice; phonon's registered name is
+                // `default`, pocket's is the fallback name.
+                fallback
+                    .map(str::to_string)
+                    .unwrap_or_else(|| "default".to_string())
+            }
             VoiceRef::Id(id) => id.clone(),
             VoiceRef::Path(p) => p
                 .file_name()
                 .map(|f| f.to_string_lossy().into_owned())
                 .unwrap_or_else(|| p.display().to_string()),
         };
-        // Voice resolution mirrors flow-ptts: Default rides the synth default
-        // (checkpoint's `default` voice), Id must be a registered voice.
         let voice_name: Option<String> = match req.voice.as_ref().unwrap_or(&VoiceRef::Default) {
-            VoiceRef::Default => None,
+            VoiceRef::Default => match fallback {
+                Some(name) => {
+                    if !cp.voices.iter().any(|v| v.name == name) {
+                        let mut known: Vec<&str> =
+                            cp.voices.iter().map(|v| v.name.as_str()).collect();
+                        known.sort();
+                        return Err(LaneError::Synth(format!(
+                            "fallback voice '{name}' not in checkpoint voices {known:?}"
+                        )));
+                    }
+                    Some(name.to_string())
+                }
+                None => None,
+            },
             VoiceRef::Id(id) => {
                 if cp.voices.iter().any(|v| v.name == *id) {
                     Some(id.clone())

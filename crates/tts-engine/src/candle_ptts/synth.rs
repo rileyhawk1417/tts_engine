@@ -38,12 +38,21 @@ use super::rng::{NormalRng, Rng};
 pub const DEFAULT_TEMPERATURE: f32 = 0.3;
 pub const DEFAULT_SEED: u64 = 4242424242424242;
 
-/// A registered voice: name plus the `[1, T, d_model]` flow-LM conditioning
-/// embedding (`Voice` in the oracle's `SynthOf`).
+/// A registered voice: name plus its prompt payload (`Voice` in the oracle's
+/// `SynthOf`). `Emb` is the phonon-style `[1, T, d_model]` flow-LM
+/// conditioning embedding; `Kv` is the pocket-tts pre-baked per-layer cache —
+/// the voice lives in the attention state, not as a prefix embedding.
 #[derive(Clone)]
 pub struct Voice {
     pub name: String,
-    pub emb: Tensor,
+    pub payload: crate::candle_ptts::loader::LoadedVoice,
+}
+
+impl Voice {
+    /// Prompt length in frames (the embedding's T or the cache end offset).
+    pub fn frames(&self) -> Result<usize, String> {
+        self.payload.frames().map_err(|e| e.to_string())
+    }
 }
 
 /// Oracle `SpeechOptions`, narrowed to what the lane seam passes through.
@@ -175,10 +184,7 @@ impl SynthDriver {
         // PROMPT_SEQ_HEADROOM — a reserve alone would leave a long prompt no
         // room (oracle synth.rs stream_with comment, verbatim).
         let prompt = match &voice {
-            Some(voice) => voice
-                .emb
-                .dim(1)
-                .map_err(|e| format!("voice embedding dims: {e}"))?,
+            Some(voice) => voice.frames()?,
             None => 0,
         };
         let text_budget = chunks
@@ -274,7 +280,12 @@ impl std::iter::Iterator for SynthDriver {
                         Err(e) => return Some(Err(format!("mimi decode: {e}"))),
                     };
                     self.frames_done += 1;
-                    let stop = self.eos.should_stop(is_eos);
+                    // EOS is honored only once `min_frames_before_eos` frames
+                    // exist (pocket fork constant 6; phonon = 0 so the frame
+                    // counter has passed it after the first step — unchanged
+                    // behavior for the phonon family).
+                    let stop = self.frames_done > self.model.min_frames_before_eos
+                        && self.eos.should_stop(is_eos);
                     if stop || self.frames_done >= chunk.frame_budget {
                         // Chunk done — `current` stays taken; the next pull
                         // primes the next chunk. prev resets with it.
@@ -292,12 +303,18 @@ impl std::iter::Iterator for SynthDriver {
 }
 
 /// Oracle `primed_state`: apply the voice conditioning (or the no-voice
-/// prompt) to a fresh state.
+/// prompt) to a fresh state. Pocket-tts voices are pre-baked attention caches:
+/// the base state imports them instead of running a voice-prompt backbone pass.
 fn prompt_base(model: &TTSModel, base: &mut TTSState, voice: &Option<Voice>) -> Result<(), String> {
     match voice {
-        Some(voice) => model
-            .prompt_audio(base, &voice.emb)
-            .map_err(|e| format!("voice prompt: {e}")),
+        Some(voice) => match &voice.payload {
+            crate::candle_ptts::loader::LoadedVoice::Emb(emb) => model
+                .prompt_audio(base, emb)
+                .map_err(|e| format!("voice prompt: {e}")),
+            crate::candle_ptts::loader::LoadedVoice::Kv(layers) => model
+                .import_voice_kv(base, layers)
+                .map_err(|e| format!("voice cache import: {e}")),
+        },
         None => model
             .prompt_no_voice(base)
             .map_err(|e| format!("no-voice prompt: {e}")),

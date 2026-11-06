@@ -25,7 +25,7 @@ fn to_vec1(t: &Tensor) -> Result<Vec<f32>> {
 use candle_nn::{Linear, Module};
 use std::collections::HashMap;
 
-use super::attention::{Kind, StreamingTransformer, StreamingTransformerState};
+use super::attention::{Kind, LayerState, StreamingTransformer, StreamingTransformerState};
 use super::cfg as ccfg;
 use super::cfg::TTSConfig;
 use super::mimi::{MimiDecoder, MimiDecoderState};
@@ -629,6 +629,9 @@ pub struct TTSModel {
     cfg_null_text_empty: bool,
     speaker_sink: Option<PrefixSink>,
     pub text_sink: Option<PrefixSink>,
+    /// Generated frames before EOS is honored (pocket fork constant 6,
+    /// phonon 0). Read by the synth driver's stop condition.
+    pub min_frames_before_eos: usize,
 }
 
 #[derive(Clone)]
@@ -682,6 +685,7 @@ impl TTSModel {
             cfg_null_text_empty: config.cfg_null_text_empty,
             speaker_sink,
             text_sink,
+            min_frames_before_eos: config.min_frames_before_eos(),
         })
     }
 
@@ -779,6 +783,67 @@ impl TTSModel {
             None => Tensor::cat(&[&self.empty_text()?, audio_conditioning], 1)?,
         };
         self.run_backbone_and_increment(state, &text_embeddings, &empty_latents)?;
+        Ok(())
+    }
+
+    /// Import a pocket-tts pre-baked voice cache into the base state: each
+    /// layer's k/v planes are written at offset 0 of the (preallocated) per-
+    /// layer cache and `current_end` set to the layer's recorded offset. This
+    /// is the pocket family's voice prompt — the state continues exactly where
+    /// the voice segment ended, and no backbone pass runs here (the cache is
+    /// already the baked result of one).
+    pub fn import_voice_kv(
+        &self,
+        state: &mut TTSState,
+        layers: &[(Tensor, Tensor, usize)],
+    ) -> Result<()> {
+        let layer_states = &mut state.flow_lm_state.transformer_state.layer_states;
+        if layers.len() != layer_states.len() {
+            return Err(candle_core::Error::Msg(format!(
+                "voice cache has {} layers but the model has {}",
+                layers.len(),
+                layer_states.len()
+            )));
+        }
+        for (i, (k, v, offset)) in layers.iter().enumerate() {
+            let LayerState::FlowLm(mha) = &mut layer_states[i] else {
+                return Err(candle_core::Error::Msg(
+                    "flow_lm layer state is not a flow-lm attention".to_string(),
+                ));
+            };
+            let (batch, budget, heads, head_dim) = mha.k_cache.dims4()?;
+            let (pk, pv) = (k.dims4()?, v.dims4()?);
+            if pk != (1, k.dim(1)?, heads, head_dim) || pv != (1, v.dim(1)?, heads, head_dim) {
+                return Err(candle_core::Error::Msg(format!(
+                    "voice cache layer {i} planes {:?}/{:?} do not match the state \
+                     cache layout (batch {batch}, heads {heads}, head_dim {head_dim})",
+                    k.dims(),
+                    v.dims()
+                )));
+            }
+            let f = k.dim(1)?;
+            if f > budget {
+                return Err(candle_core::Error::Msg(format!(
+                    "voice cache layer {i} holds {f} frames but the state budget is \
+                     {budget}"
+                )));
+            }
+            let zeros_k = Tensor::zeros(
+                (batch, budget - f, heads, head_dim),
+                candle_core::DType::F32,
+                k.device(),
+            )?;
+            let zeros_v = Tensor::zeros(
+                (batch, budget - f, heads, head_dim),
+                candle_core::DType::F32,
+                v.device(),
+            )?;
+            mha.k_cache = Tensor::cat(&[k, &zeros_k], 1)?;
+            mha.v_cache = Tensor::cat(&[v, &zeros_v], 1)?;
+            // The recorded offset is the filled prefix; the file may pad the
+            // plane beyond it (frames past `offset` never enter a read).
+            mha.current_end = *offset;
+        }
         Ok(())
     }
 

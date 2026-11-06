@@ -134,8 +134,35 @@ fn default_audio_prompt_max_duration() -> f32 {
     10.0
 }
 
+/// Which checkpoint family a config describes. Drives only the pieces that
+/// genuinely differ between phonon (ptts 0.6.0 semantics) and pocket-tts
+/// (kyutai); everything else is config-driven already. Default: phonon.
+/// - `Phonon`: voice files hold `emb` embeddings; EOS is honored from frame 1.
+/// - `Pocket`: voice files hold pre-baked per-layer KV caches (the voice is
+///   imported into the attention state rather than concatenated as an
+///   embedding); EOS before `min_frames_before_eos()` generated frames is
+///   ignored (fork constant 6); default voice falls back to `alba`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Family {
+    #[default]
+    Phonon,
+    Pocket,
+}
+
+impl Family {
+    /// Serde skip helper on the enum itself (`skip_serializing_if` needs
+    /// `fn(&Family) -> bool`).
+    fn is_phonon(f: &Family) -> bool {
+        matches!(f, Family::Phonon)
+    }
+}
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct TTSConfig {
+    /// Checkpoint family; absent (older configs parse unchanged) means phonon.
+    #[serde(default, skip_serializing_if = "Family::is_phonon")]
+    pub family: Family,
     pub flow_lm: FlowLMConfig,
     pub mimi: MimiConfig,
     pub lsd_decode_steps: usize,
@@ -186,6 +213,30 @@ impl TTSConfig {
             Gelu::Erf
         } else {
             Gelu::Tanh
+        }
+    }
+
+    /// Serde helper: pocket is the only family that needs the field on disk.
+    /// Serde helper on the config (kept for lane-side readability).
+    pub fn is_phonon(&self) -> bool {
+        self.family == Family::Phonon
+    }
+
+    /// Generated frames before EOS is honored (pocket fork
+    /// `MIN_FRAMES_BEFORE_EOS = 6`; phonon honors EOS from the first frame).
+    pub fn min_frames_before_eos(&self) -> usize {
+        match self.family {
+            Family::Phonon => 0,
+            Family::Pocket => 6,
+        }
+    }
+
+    /// Voice to use when a request names none (pocket fork
+    /// `DEFAULT_VOICE_FALLBACK = "alba"`; phonon ships `default-voice`).
+    pub fn fallback_voice(&self) -> Option<&'static str> {
+        match self.family {
+            Family::Phonon => None,
+            Family::Pocket => Some("alba"),
         }
     }
 

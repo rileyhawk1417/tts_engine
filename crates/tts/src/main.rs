@@ -1,11 +1,15 @@
-//! `tts synth` — the seam CLI (docs/seam.md §2):
+//! `tts synth` — the seam CLI (docs/seam.md §2) + `tts serve` (T014 daemon):
 //!
 //!     tts synth --lane LANE --model MODEL [--lang en] [--voice NAME]
 //!               --text TEXT -o out.wav [--jsonl out.jsonl | --bench]
 //!               [--seed N] [--allow-hf]
+//!     tts serve --lane NAME=MODEL [-–lane …] --socket PATH | --tcp H:P
+//!               [--lazy] [--idle-unload S] [--threads N] [--nice N]
 //!
 //! Exit codes: 0 ok · 2 usage · 3 load · 4 synth · 5 io. Telemetry is the
 //! seam's job: `RunRecorder` drives `chunks.jsonl` while chunks flow through.
+//! `tts synth` stays the ONLY eval/bench surface; `tts serve` is the resident
+//! daemon surface (docs/notes/resident-service.md, docs/plan/tasks/T014-*.md).
 
 use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
@@ -19,8 +23,9 @@ use tts_engine::telemetry::RunRecorder;
 use tts_engine::types::{LaneError, Lang, ModelRef, SynthRequest, VoiceRef};
 use tts_engine::{chunking, wav};
 
-static PROC_START: OnceLock<Instant> = OnceLock::new();
+mod serve;
 
+static PROC_START: OnceLock<Instant> = OnceLock::new();
 fn proc_start() -> Instant {
     *PROC_START.get_or_init(Instant::now)
 }
@@ -73,6 +78,34 @@ enum Cmd {
         #[arg(long)]
         repeat: Option<u32>,
     },
+    /// Resident daemon mode: load lanes ONCE and stream synthesis over a
+    /// socket (HTTP/1.1 + NDJSON chunks; docs/notes/resident-service.md).
+    Serve {
+        /// Repeatable lane spec `NAME=MODEL` (MODEL is a disk path; the lane
+        /// loads at boot unless --lazy)
+        #[arg(long = "lane")]
+        lanes: Vec<String>,
+        /// Unix domain socket to listen on (UDS default: owner-scoped;
+        /// relay hosts the daemon in the same container)
+        #[arg(long)]
+        socket: Option<PathBuf>,
+        /// Listen on TCP host:port instead of a unix socket (opt-in)
+        #[arg(long)]
+        tcp: Option<String>,
+        /// Defer lane loads to their first request (boot stays instant)
+        #[arg(long)]
+        lazy: bool,
+        /// Unload a lane after N seconds idle; the next request pays a
+        /// fresh, honestly-reported load (0 = stay resident forever)
+        #[arg(long, default_value_t = 0)]
+        idle_unload: u64,
+        /// Intra-op thread count for ORT-graph lanes (TTS_ORT_INTRA)
+        #[arg(long)]
+        threads: Option<usize>,
+        /// setpriority(2) niceness for the daemon process (relay's -n 10)
+        #[arg(long)]
+        nice: Option<i32>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -104,6 +137,23 @@ fn main() -> ExitCode {
             allow_hf,
             repeat.unwrap_or(1),
         ),
+        Cmd::Serve {
+            lanes,
+            socket,
+            tcp,
+            lazy,
+            idle_unload,
+            threads,
+            nice,
+        } => serve::run(&serve::ServeConfig {
+            lanes,
+            socket,
+            tcp,
+            lazy,
+            idle_unload,
+            threads,
+            nice,
+        }),
     }
 }
 
@@ -330,7 +380,7 @@ fn resolve_text(arg: &str) -> std::io::Result<String> {
     }
 }
 
-fn resolve_model(lane: &str, arg: &str, allow_hf: bool) -> Option<ModelRef> {
+pub(crate) fn resolve_model(lane: &str, arg: &str, allow_hf: bool) -> Option<ModelRef> {
     // Diagnostic pseudo-models (no weights): `tts synth --lane smoke --model smoke`
     if lane == "smoke" && arg == "smoke" {
         return Some(ModelRef::Pseudo(arg.to_string()));
@@ -348,7 +398,7 @@ fn resolve_model(lane: &str, arg: &str, allow_hf: bool) -> Option<ModelRef> {
     None
 }
 
-fn resolve_voice(arg: &str) -> VoiceRef {
+pub(crate) fn resolve_voice(arg: &str) -> VoiceRef {
     let p = Path::new(arg);
     if p.exists() {
         VoiceRef::Path(p.to_path_buf())

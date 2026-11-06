@@ -20,6 +20,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Weights-cache convention (targets.md): HF cache lives on the teranux mount,
+# never on the home volume. ~/.cache/huggingface/hub is a symlink to the same
+# path, so this export is belt-and-braces (xet/pk caches must also land here).
+export HF_HOME=/teranux/hugging_face
+
 # --out DIR resumes a prior run dir: rows with transcript.txt are skipped,
 # rows.tsv is kept, and end-of-run summaries still regenerate.
 LANE="" MODEL="" CORPUS="internal" LIMIT=0 JUDGE="nemo" SEED=42 TAG="" RESUME=0

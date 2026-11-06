@@ -162,10 +162,11 @@ Decided direction:
   row BEFORE any lane swap. Zero-dep Node client = `http.request` with
   `socketPath` (Node's builtin http supports UDS), byte-wise NDJSON decode,
   ~1 file in `bot-relay/src/tts.ts` behind the existing `TtsEngine` seam.
-  **Status 2026-11-06 (relay prep session): the client now EXISTS and is
-  tested — `relay/tts-client.js` (+ 14-check harness `relay/tts-client.test.mjs`,
-  14/14 green incl. client-assembled-WAV == CLI byte-identity `80241f1c…`; drop-in
-  plan in `relay/README.md`). Chat-replay harness `eval/relay/bench.mjs`; first
+  **Status 2026-11-06 (example client): the client now EXISTS and is
+  tested — `examples/node-client/tts-client.js` (+ 14-check harness
+  `examples/node-client/tts-client.test.mjs`, 14/14 green incl.
+  client-assembled-WAV == CLI byte-identity `80241f1c…`; embedding notes in
+  `examples/node-client/README.md`). Chat-replay harness `eval/relay/bench.mjs`; first
   local-approximation runs in `eval/relay/RESULTS.md` — NON-ADMISSIBLE
   (taskset 4-core), in-container row still owed.**
 

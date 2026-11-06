@@ -1,7 +1,8 @@
 /**
- * tts daemon client — the zero-dependency relay-side `TtsEngine` for
- * `tts serve` (tts_engine T014). Paste-ready for `bot-relay/src/tts.ts`
- * (plain ESM JavaScript + JSDoc: valid TypeScript, runs under Node unchanged).
+ * tts daemon client — zero-dependency example client for
+ * `tts serve` of this engine. Paste-ready for any Node/TypeScript app
+ * (plain ESM JavaScript + JSDoc: valid TypeScript, runs under Node
+ * unchanged).
  *
  * Wire (docs/notes/resident-service.md, "the wire, as landed"):
  *   POST /synth  body {lane, text, lang, voice, seed, speed}

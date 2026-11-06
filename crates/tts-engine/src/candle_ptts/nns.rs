@@ -8,7 +8,7 @@
 //! phonon-31m-en) instead of being read through mmap views zero-copy like xn.
 
 use candle_core::{Device, Result, Tensor};
-use candle_nn::{LayerNorm, Linear};
+use candle_nn::{LayerNorm, Linear, Module as _};
 
 pub type VB = candle_nn::VarBuilder<'static>;
 
@@ -26,6 +26,27 @@ pub fn linear(vb: &VB, in_dim: usize, out_dim: usize, bias: bool) -> Result<Line
 /// Functional layer norm with explicit weight/bias (candle-nn's op kernel).
 pub fn layer_norm(x: &Tensor, w: &Tensor, b: &Tensor, eps: f64) -> Result<Tensor> {
     candle_nn::ops::layer_norm(x, w, b, eps as f32)
+}
+
+/// candle-nn 0.11.1 `ops::LayerNorm` has no cuda_fwd (sigmoid/softmax/rms-norm
+/// do), so its `forward` bails on CUDA devices with "no cuda implementation
+/// for layer-norm". CPU keeps the exact library op — byte-faithful with every
+/// banked row; CUDA runs the same math the library's own fallback uses
+/// (sum/mean, sqr, broadcast div/mul/add — all cuda-kernel-backed).
+pub fn ln_forward(ln: &LayerNorm, x: &Tensor) -> Result<Tensor> {
+    if !x.device().is_cuda() {
+        return ln.forward(x);
+    }
+    let hidden = x.dim(candle_core::D::Minus1)?;
+    let mean_x = (x.sum_keepdim(candle_core::D::Minus1)? / hidden as f64)?;
+    let x = x.broadcast_sub(&mean_x)?;
+    let norm_x = (x.sqr()?.sum_keepdim(candle_core::D::Minus1)? / hidden as f64)?;
+    let x = x.broadcast_div(&(norm_x + ln.eps())?.sqrt()?)?;
+    let x = x.broadcast_mul(ln.weight())?;
+    match ln.bias() {
+        None => Ok(x),
+        Some(b) => x.broadcast_add(b),
+    }
 }
 
 /// `xn::nn::LayerNorm::load` with a learned scale AND bias.

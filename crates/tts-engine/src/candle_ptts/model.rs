@@ -945,12 +945,18 @@ impl TTSModel {
         self.mimi.sample_rate
     }
 
+    /// The model's compute device — every weight tensor lives here (VarBuilder
+    /// placed them at load). All state tensors must be created on it too:
+    /// the port has zero implicit cross-device transfers.
+    pub fn device(&self) -> &Device {
+        self.flow_lm.device()
+    }
+
     /// Initialize the Mimi decoder state for a batch (`sequence_length`
     /// reaches only the flow-LM attention kind, which a Mimi decoder has none
     /// of, so any value is discarded — oracle tts_model.rs).
     pub fn init_mimi_state(&self, batch_size: usize) -> Result<MimiDecoderState> {
-        self.mimi
-            .init_state(batch_size, 0, &candle_core::Device::Cpu)
+        self.mimi.init_state(batch_size, 0, self.device())
     }
 
     /// The checkpoint's speaker projection, when it has one. Voice files holding

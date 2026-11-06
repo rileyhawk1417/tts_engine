@@ -16,7 +16,7 @@ use candle_nn::ops::softmax_last_dim as softmax_last_dim_op;
 use candle_nn::{LayerNorm, Linear, Module};
 
 use super::cfg::Gelu;
-use super::nns::{RopeTables, VB, layer_norm_load, linear, rope_apply};
+use super::nns::{RopeTables, VB, layer_norm_load, ln_forward, linear, rope_apply};
 
 // ---- FlowLm attention state ----
 
@@ -440,7 +440,7 @@ impl Layer {
         mask: Option<&Tensor>,
     ) -> Result<Tensor> {
         // Self-attention block: x + layer_scale_1(attn(norm1(x)))
-        let norm1 = self.norm1.forward(x)?;
+        let norm1 = ln_forward(&self.norm1, x)?;
         let mut attn_out = match (&self.self_attn, state) {
             (AttentionKind::Mimi(attn), LayerState::Mimi(cache)) => {
                 attn.forward(&norm1, tables, cache, mask)?
@@ -460,7 +460,7 @@ impl Layer {
         let x = x.add(&attn_out)?;
 
         // FF block: x + layer_scale_2(ff(norm2(x)))
-        let norm2 = self.norm2.forward(&x)?;
+        let norm2 = ln_forward(&self.norm2, &x)?;
         let mut ff_out = self.linear1.forward(&norm2)?;
         ff_out = match self.gelu {
             Gelu::Tanh => gelu_tanh(&ff_out)?,

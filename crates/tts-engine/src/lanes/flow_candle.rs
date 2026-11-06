@@ -56,6 +56,10 @@ pub struct CandleCheckpoint {
     pub tensor_count: usize,
     pub used_count: usize,
     pub total_bytes: usize,
+    /// Compute device from load (`candle_device()`; e.g. "cpu", "cuda:0") —
+    /// surfaces in the runtime telemetry string. The `Device` itself rides on
+    /// the model/voice tensors; synthesize needs only the label.
+    pub device_label: &'static str,
 }
 
 pub struct FlowCandleLane {
@@ -131,7 +135,12 @@ impl TtsLane for FlowCandleLane {
         // materialization (~98 MiB f32) — that's the honest load cost.
         let weights = crate::candle_ptts::loader::Weights::from_safetensors(&weights_path)
             .map_err(LaneError::Load)?;
-        let vb = weights.var_builder();
+        // Chunk-2 GPU: device chosen once at load, threaded through VarBuilder
+        // (weights) + the voice placements below. Default cpu is byte-faithful
+        // with every banked row.
+        let (device, device_label) =
+            crate::candle_ptts::loader::candle_device().map_err(LaneError::Load)?;
+        let vb = weights.var_builder(&device);
         // Oracle Checkpoint::open takes dir/tokenizer.json when it exists and
         // leaves the tokenizer unset otherwise (config's tokenizer_name is
         // informational on phonon).
@@ -159,6 +168,7 @@ impl TtsLane for FlowCandleLane {
                 &path,
                 cfg.embeddings_ext.as_deref(),
                 model.speaker_proj(),
+                &device,
             )
             .map_err(LaneError::Load)?;
             voices.push(crate::candle_ptts::synth::Voice { name, payload });
@@ -200,6 +210,7 @@ impl TtsLane for FlowCandleLane {
             tensor_count: inv.tensors.len(),
             used_count: inv.used_count,
             total_bytes: inv.total_bytes,
+            device_label,
         });
         Ok(LoadInfo {
             load_ms: t0.elapsed().as_millis() as u64,
@@ -295,7 +306,7 @@ impl TtsLane for FlowCandleLane {
             determinism: Determinism::Seeded,
             seed: req.seed,
             lane_version: env!("CARGO_PKG_VERSION").to_string(),
-            runtime: format!("candle-0.11 (f32, cpu) load {}ms", cp.load_ms),
+            runtime: format!("candle-0.11 (f32, {}) load {}ms", cp.device_label, cp.load_ms),
             load_ms: cp.load_ms,
             // Grain = one decoded frame (1920 samples): the single-threaded
             // inline decode path (the port runs no decode queue, so each frame

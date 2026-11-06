@@ -42,6 +42,13 @@ flow-candle = ["dep:candle-core", "dep:candle-nn", "dep:rand", "dep:rand_distr",
 # piper randn conventions (same crate versions as the ptts oracle sampler).
 piper = ["dep:espeak-rs", "dep:ort", "dep:rand", "dep:rand_distr"]
 
+# Chunk-2 GPU (2026-11-06): candle CUDA backend for the flow-candle lane
+# (opt-in; off by default). Device picked at load via TTS_CANDLE_DEVICE
+# (default cpu — byte-faithful with all banked rows; cuda|cuda:0 with the
+# driver present). cudarc resolves driver libs at runtime; nvrtc JITs
+# kernels on first inference (very first synth is cold — warm from run 2+).
+flow-candle-cuda = ["flow-candle", "candle-core/cuda", "candle-nn/cuda"]
+
 # Examples compile per-feature; the probes import lane deps, so gate them
 # (auto-discovery would break `cargo test -p tts-engine` on any single-feature
 # build).

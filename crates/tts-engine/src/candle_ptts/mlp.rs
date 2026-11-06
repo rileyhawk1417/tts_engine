@@ -15,7 +15,7 @@ use candle_core::{D, Tensor};
 use candle_nn::{LayerNorm, Linear, Module};
 
 use super::cfg::TimeRmsNorm;
-use super::nns::{VB, layer_norm_const, layer_norm_load, linear};
+use super::nns::{VB, layer_norm_const, layer_norm_load, ln_forward, linear};
 
 /// `modulate` — exact oracle order.
 fn modulate(x: &Tensor, shift: &Tensor, scale: &Tensor) -> candle_core::Result<Tensor> {
@@ -127,7 +127,7 @@ impl ResBlock {
             .contiguous()?;
 
         // h = modulate(ln(x), shift, scale)
-        let h = self.in_ln.forward(x)?;
+        let h = ln_forward(&self.in_ln, x)?;
         let h = modulate(&h, &shift_mlp, &scale_mlp)?;
 
         // MLP
@@ -164,7 +164,7 @@ impl FinalLayer {
         let scale = ada
             .narrow(D::Minus1, model_channels, model_channels)?
             .contiguous()?;
-        let x = self.norm_final.forward(x)?;
+        let x = ln_forward(&self.norm_final, x)?;
         let x = modulate(&x, &shift, &scale)?;
         self.linear.forward(&x)
     }

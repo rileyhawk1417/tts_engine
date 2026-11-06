@@ -179,10 +179,48 @@ impl Weights {
         })
     }
 
-    /// A `VarBuilder` over the owned map, f32 on CPU.
-    pub fn var_builder(&self) -> crate::candle_ptts::nns::VB {
-        candle_nn::VarBuilder::from_tensors(self.map.clone(), candle_core::DType::F32, &Device::Cpu)
+    /// A `VarBuilder` over the owned map, f32 placed on `dev`. Candle moves
+    /// map tensors to the VarBuilder device at first get() — this is the single
+    /// placement seam for weights. `Device::Cpu` (the default) is
+    /// behaviour-identical to every pre-GPU build.
+    pub fn var_builder(&self, dev: &Device) -> crate::candle_ptts::nns::VB {
+        candle_nn::VarBuilder::from_tensors(self.map.clone(), candle_core::DType::F32, dev)
     }
+}
+
+/// Which device the candle lane loads and runs on (chunk-2 GPU, 2026-11-06).
+/// Default `cpu` — byte-faithful with every banked row. `cuda`/`cuda:0` need
+/// the `flow-candle-cuda` build feature; anything else is refused loudly
+/// rather than silently ignored (the runtime string reports the device
+/// either way — determinism honesty).
+pub fn candle_device() -> Result<(Device, &'static str), LoadError> {
+    const EV: &str = "TTS_CANDLE_DEVICE";
+    let setting = std::env::var(EV).unwrap_or_default();
+    match setting.as_str() {
+        "" | "cpu" => Ok((Device::Cpu, "cpu")),
+        other => cuda_device(other),
+    }
+}
+
+#[cfg(feature = "flow-candle-cuda")]
+fn cuda_device(other: &str) -> Result<(Device, &'static str), LoadError> {
+    const EV: &str = "TTS_CANDLE_DEVICE";
+    match other {
+        "cuda" | "cuda:0" => Device::new_cuda(0)
+            .map(|d| (d, "cuda:0"))
+            .map_err(|e| format!("{EV}: cuda init failed: {e}")),
+        unknown => Err(format!(
+            "{EV}: unknown device {unknown:?} (cpu|cuda|cuda:0)"
+        )),
+    }
+}
+
+/// cuda requested but this build carries no cuda backend — refuse loudly.
+#[cfg(not(feature = "flow-candle-cuda"))]
+fn cuda_device(other: &str) -> Result<(Device, &'static str), LoadError> {
+    Err(format!(
+        "TTS_CANDLE_DEVICE={other:?} set but this build has no `flow-candle-cuda` feature"
+    ))
 }
 
 // ---- voice assets (port of the oracle's voice halves of `loader.rs`) ----
@@ -330,11 +368,14 @@ impl LoadedVoice {
 
 /// Read a `.safetensors` voice asset and return its payload. A file holding
 /// `...self_attn/cache` entries is a pocket-tts pre-baked voice cache; else an
-/// `emb` / first-key embedding; else `speaker_wavs` latents.
+/// `emb` / first-key embedding; else `speaker_wavs` latents. Tensors are
+/// placed on `dev` at load — voice paths stay single-device (GPU builds have
+/// zero implicit cross-device transfers).
 pub fn load_voice(
     path: &std::path::Path,
     embeddings_ext: Option<&[String]>,
     speaker_proj: Option<&candle_nn::Linear>,
+    dev: &Device,
 ) -> Result<LoadedVoice, LoadError> {
     let label = format!("voice file {}", path.display());
     // The header first: a mismatch is refused before any tensor is decoded, and
@@ -342,7 +383,7 @@ pub fn load_voice(
     if let Some(embeddings_ext) = embeddings_ext {
         check_model_ext(&read_safetensors_header(path)?, &label, embeddings_ext)?;
     }
-    let tensors = candle_core::safetensors::load(path, &Device::Cpu)
+    let tensors = candle_core::safetensors::load(path, dev)
         .map_err(|e| format!("voice load {}: {e}", path.display()))?;
     voice_from_map(&tensors, &label, speaker_proj)
 }
@@ -485,14 +526,15 @@ fn voice_cache_from_map(
 
 /// Port of the oracle's `load_voice_emb`: read a `.safetensors` voice asset,
 /// check its `model_ext` against `embeddings_ext`, and return the embedding as
-/// `[1, T, dim]` f32 on CPU. A `speaker_wavs` file needs the `speaker_proj`
+/// `[1, T, dim]` f32 on `dev`. A `speaker_wavs` file needs the `speaker_proj`
 /// linear; `None` for such a file is an error (and ignored for `emb` files).
 pub fn load_voice_emb(
     path: &std::path::Path,
     embeddings_ext: Option<&[String]>,
     speaker_proj: Option<&candle_nn::Linear>,
+    dev: &Device,
 ) -> Result<Tensor, LoadError> {
-    match load_voice(path, embeddings_ext, speaker_proj)? {
+    match load_voice(path, embeddings_ext, speaker_proj, dev)? {
         LoadedVoice::Emb(t) => Ok(t),
         LoadedVoice::Kv(_) => Err(format!(
             "voice file {} holds pre-baked KV caches (pocket-tts family); this \

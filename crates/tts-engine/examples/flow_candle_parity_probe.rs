@@ -102,7 +102,7 @@ fn stages_probe(cp: &Checkpoint, chunk: &OracleChunk) {
 
     let vw = tts_engine::candle_ptts::loader::Weights::from_safetensors(cp.weights.as_path())
         .expect("candle weights");
-    let vb = vw.var_builder();
+    let vb = vw.var_builder(&candle_core::Device::Cpu);
     let ccfg = tts_engine::candle_ptts::cfg::from_checkpoint(
         &std::path::Path::new(cp.weights.as_path())
             .parent()
@@ -153,6 +153,7 @@ fn stages_probe(cp: &Checkpoint, chunk: &OracleChunk) {
         &voice_path,
         cp.config.embeddings_ext.as_deref(),
         cmodel.speaker_proj(),
+        &candle_core::Device::Cpu,
     )
     .expect("candle voice emb");
     let oh: Vec<f32> = o_emb.to_vec().expect("oracle emb host");
@@ -418,7 +419,7 @@ fn main() {
 
         let weights =
             Weights::from_safetensors(std::path::Path::new(&cp.weights)).expect("candle weights");
-        let vb = weights.var_builder();
+        let vb = weights.var_builder(&candle_core::Device::Cpu);
         let tok_path = cp.tokenizer.clone().expect("tokenizer.json");
         let tokenizer: Box<dyn tts_engine::candle_ptts::tok::Tokenizer> = Box::new(
             tts_engine::candle_ptts::tok::Tok::open(std::path::Path::new(&tok_path))
@@ -438,6 +439,7 @@ fn main() {
             &voice_path,
             cp.config.embeddings_ext.as_deref(),
             model.speaker_proj(),
+            &candle_core::Device::Cpu,
         )
         .expect("candle voice emb");
 

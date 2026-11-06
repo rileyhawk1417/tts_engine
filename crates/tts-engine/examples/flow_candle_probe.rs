@@ -136,7 +136,7 @@ fn main() {
     );
     // Every remapped entry must resolve through the VarBuilder (presence
     // sweep — no silent drops on the candle side).
-    let vb = weights.var_builder();
+    let vb = weights.var_builder(&candle_core::Device::Cpu);
     let missing: Vec<&String> = weights
         .map
         .keys()

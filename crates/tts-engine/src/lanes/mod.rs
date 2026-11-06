@@ -71,7 +71,7 @@ pub(crate) fn ort<T>(r: ort::Result<T>, what: &str) -> Result<T, LaneError> {
 
 /// Lane-agnostic CPU dial default: logical/2 ≈ physical cores (SMT halves
 /// give no compute; the te/STT law — threads=cores — transfers here).
-#[cfg(any(feature = "graph-ort", feature = "piper"))]
+#[cfg(any(feature = "graph-ort", feature = "piper", feature = "flow-ptts"))]
 pub(crate) fn physical_core_estimate() -> usize {
     let logical = std::thread::available_parallelism()
         .map(|n| n.get())

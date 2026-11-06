@@ -33,6 +33,27 @@ already warm). Full per-line rows: `results/20261106-0713-local-{w1,w2}/`
 - RSS peak ~0.6 GB with both lanes loaded leaves headroom under the 2 GB cap
   minus the whisper pool (unknown here — the container row measures it).
 
+## 2026-11-06 addendum — Dockerized daemon row (cap REAL, still not the final admissible row)
+
+Daemon ran in Docker (archlinux base, espeak-ng via pacman, ORT + models +
+binary bind-mounted) with **`--cpus 3.5 --memory 2g --memory-swap 2g`**
+(cgroup-verified: cpu.max=350000/100000, memory.max=2GiB). Host client via
+bind-mounted UDS. Both lanes, workers 1 & 2 → `results/20261106-0725-incontainer-{w1,w2}/`:
+
+| Run | Lane | TTFA med | TTFA p95 | rtf_mean | rss max |
+|---|---|---|---|---|---|
+| docker w1 | kokoro int8 | 6785 ms | 9750 ms | 0.516 | 424 MB |
+| docker w1 | piper amy | **404 ms** | 538 ms | 8.5 | 531 MB |
+| docker w2 | kokoro int8 | 6832 ms | 9691 ms | 0.520 | 588 MB |
+| docker w2 | piper amy | 400 ms | 534 ms | 8.6 | 588 MB |
+
+Matches the 4-core approximation within noise (kokoro 6.6→6.8 s, piper 372→404 ms).
+**Functional proof: the 14-check client harness passed 14/14 from a network-less
+`node:26-slim` container against the capped daemon** (socket perms needed
+`chmod 666` — in-container daemon is root; production must chmod or run as the
+bot user). Remaining gap vs the admissible row: the `kokoroWorker` comparison
+arm on the same lines + the real relay box hardware.
+
 ## Next runs (the admissible ones)
 
 1. In-container daemon: `bench.mjs --sock /run/tts/tts.sock --lane kokoro --lane piper --workers 1 --workers variant` …

@@ -1,0 +1,34 @@
+{
+  "label": "local-approximation (non-admissible; in-container row required)",
+  "stamp": "2026-11-06T10:16:10.590Z",
+  "sock": "/tmp/ttspt/tts.sock",
+  "workers": 1,
+  "reps": 3,
+  "seed": 42,
+  "lang": "en",
+  "lines": 14,
+  "host": {
+    "platform": "linux",
+    "node": "v22.22.0"
+  },
+  "lanes": {
+    "flow-ptts": {
+      "n": 42,
+      "ttfa": {
+        "med": 302,
+        "p95": 438
+      },
+      "wall": {
+        "med": 1168,
+        "p95": 1515
+      },
+      "rtf_mean": 3.0796346050510492,
+      "audio_total_s": 143.28,
+      "rss_after_kb_max": 353904,
+      "warmup": {
+        "ttfa_ms": 154,
+        "rss_after_kb": 353904
+      }
+    }
+  }
+}

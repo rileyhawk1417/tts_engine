@@ -93,3 +93,32 @@ For the relay feel this is a TTFA-first lane: first words land 17× under the
 
 Same remaining gap as above: `kokoroWorker` comparison arm + the real relay
 box hardware — those rows move the claim from engine-side to admissible.
+
+### Addendum 3 — flow-ptts in-container clears the relay bar (2026-11-06)
+
+Same topology as addendum 2 (archlinux base, `--cpus 3.5 --memory 2g
+--memory-swap 2g --network none`, host-lib `:ro` mounts, `--device cpu`), but
+with the **flow-ptts** lane (llama.cpp backend, resolves `model.q8.gguf` Q80,
+loads in 117 ms, boot RSS 211 MB). Same 14-chat-line corpus, seed 42, warm:
+
+| row | TTFA med | TTFA p95 | wall med | rtf | RSS max | notes |
+|---|---|---|---|---|---|---|
+| w1, n=14 | 295 ms | 385 ms | 1.16 s | 3.117 | 354 MB | streaming, 22+ chunks/line |
+| w2, n=14 | 284 ms | 367 ms | 1.14 s | 3.134 | 354 MB | 2 in-flight ≈ w1 |
+| w1 reps=3, n=42 | **302 ms** | **438 ms** | ~1.17 s | 3.080 | 354 MB | firmer p95 |
+
+Cold first-request after boot (`warmup` row): TTFA 2069 ms, rtf 1.41 — one hit
+per daemon boot, right at the 2 s bar; steady state is far under.
+
+**This clears the reviewer-stated relay bar on the same cap**: first audio
+< 2 s AND rtf ≥ 1 at 3.5 CPUs — rtf 3.08 means synthesis runs ~3× faster than
+playback, so an assemble-then-play client still delivers a full line's WAV in
+~1.2 s end-to-end; a chunk-streaming client reaches the 0.3 s daemon-side
+TTFA. Contrast with the candle port of the same family (addendum 2): the
+llama.cpp q8 path is ~10× the sustained CPU throughput (3.08 vs 0.30) and
+~half the memory (354 vs ~420 MB). flow-candle remains the GPU-side port;
+flow-ptts is the CPU lane.
+
+Remaining for admissibility: relay client must stream chunks to actually ship
+0.3 s first audio (assemble-then-play gives ~1.2 s — still under the bar), and
+the real relay box A/B is the reviewer's step by their own framing.

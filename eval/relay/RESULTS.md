@@ -98,7 +98,8 @@ box hardware — those rows move the claim from engine-side to admissible.
 
 Same topology as addendum 2 (archlinux base, `--cpus 3.5 --memory 2g
 --memory-swap 2g --network none`, host-lib `:ro` mounts, `--device cpu`), but
-with the **flow-ptts** lane (llama.cpp backend, resolves `model.q8.gguf` Q80,
+with the **flow-ptts** lane (pure-Rust `ptts` crate — an `xn` tensor stack reading
+the GGUF *file format*; no ggml, no FFI — `model.q8.gguf` Q8_0 weights,
 loads in 117 ms, boot RSS 211 MB). Same 14-chat-line corpus, seed 42, warm:
 
 | row | TTFA med | TTFA p95 | wall med | rtf | RSS max | notes |
@@ -114,10 +115,12 @@ per daemon boot, right at the 2 s bar; steady state is far under.
 < 2 s AND rtf ≥ 1 at 3.5 CPUs — rtf 3.08 means synthesis runs ~3× faster than
 playback, so an assemble-then-play client still delivers a full line's WAV in
 ~1.2 s end-to-end; a chunk-streaming client reaches the 0.3 s daemon-side
-TTFA. Contrast with the candle port of the same family (addendum 2): the
-llama.cpp q8 path is ~10× the sustained CPU throughput (3.08 vs 0.30) and
-~half the memory (354 vs ~420 MB). flow-candle remains the GPU-side port;
-flow-ptts is the CPU lane.
+TTFA. Contrast with the candle port of the same family (addendum 2): the q8
+`ptts` path is ~10× the sustained CPU throughput (3.08 vs 0.30) and
+~half the memory (354 vs ~420 MB). (Earlier drafts of this addendum called the
+backend "llama.cpp" — wrong label carried over from the gguf container file;
+same build throughout: the pure-Rust `ptts` 0.6 crate.) flow-candle remains the
+GPU-side port; flow-ptts is the CPU lane.
 
 Remaining for admissibility: relay client must stream chunks to actually ship
 0.3 s first audio (assemble-then-play gives ~1.2 s — still under the bar), and

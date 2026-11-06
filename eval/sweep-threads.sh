@@ -20,7 +20,9 @@ for T in 1 2 4 8 16; do
     TTS_ORT_INTRA=$T "$BIN" synth --lane "$LANE" --model "$MODEL" "${VOICE_ARG[@]+"${VOICE_ARG[@]}"}" \
         --text "$TEXT" -o "$OUTROOT/t$T.wav" --seed 42 --repeat 3 >/dev/null 2> "$OUTROOT/t$T.log"
     grep "synth ok" "$OUTROOT/t$T.log" | sed -E 's/.*chunks=([0-9]+) audio=([0-9.]+)s wall=([0-9]+)ms rtf=([0-9.]+) ttfa=([0-9]+)ms peak_rss=([0-9]+)KB.*/  chunks=\1 audio=\2 wall=\3ms rtf=\4 ttfa=\5ms rss=\6KB/'
-    for f in "$OUTROOT/t$T".rep*.wav; do
+    for f in "$OUTROOT/t$T".wav.rep*; do
         echo "  sha: $(sha256sum "$f" | cut -c1-16)  $(basename "$f")"
     done
+    u=$(sha256sum "$OUTROOT/t$T".wav.rep* | awk '{print $1}' | sort -u | wc -l)
+    echo "  unique shas across reps: $u (1 = identity PASS)"
 done

@@ -391,3 +391,16 @@ grouped digits; all five moved sentences sit at ≥ 50 WER on CPU already
 (number/date classes, the checkpoint's known weak tail). **Quality gate: GPU
 row passes the WER-class gate** — same class as CPU, 16× faster, at the price
 of a new per-device byte class.
+
+### Quality gate — audit-hardened (post-commit)
+
+(a) all 585 per-sentence `chunksA.jsonl` meta headers self-declare the device —
+CPU row 80/80 `f32, cpu`, GPU rows 580/580 `f32, cuda:0` (one binary built
+10:29:34 served smoke+hard-500+hard-80; mtime unchanged → no mid-eval relink);
+(b) all 80 ref texts byte-identical across the two hard-80 dirs, same judge sha
++ seed; (c) **cross-day CPU revalidation — today's binary re-synthesizes 80/80
+byte-identical vs the Nov-5 t009-parity stored wavs**, so T015 (landed after
+that row) did not alter phonon CPU bytes and the 60.28 baseline is fresh for
+current code; (d) the 5 shifted sentences re-transcribed under the same judge
+confirm a device-only split (today-CPU: "4502-1187-33902", "march 14th";
+today-GPU: "four five zero two …", "march fourteenth"). Apples-to-apples.

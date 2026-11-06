@@ -81,18 +81,21 @@ Decided direction:
 
 ## Seam deltas this implies (keep-in-mind checklist)
 
-- [ ] `speed` field in `SynthRequest` + a per-lane mapping table (kokoro: rate =
-      1/length_scale; piper: length_scale passthrough; flow lane: verify phonon rate
-      control exists before promising it).
-- [ ] `RunMeta`/chunks.jsonl additions: `mode` (cold|warm), `load_ms` (fresh on cold),
-      `determinism_class`, `rss_after`, `resets`.
-- [ ] Lane capability matrix in `targets.md`: streaming? speed? determinism class? warm
-      RSS? warm TTFA? — one row per lane, the swap-decision surface.
-- [ ] `serve` behind a build feature flag — remember the feature-strip landmine: mtime
-      lies via hardlink relink; *the feature list is the only truth*.
-- [ ] **Harmony gate**: daemon replay of a CLI-recorded corpus must produce byte-identical
-      PCM for deterministic profiles (candle 80/80; ptts@1t idle), with a documented
-      under-load fail-budget for ptts-class lanes (known 1.4–2.2%).
+- [x] `speed` field in `SynthRequest` + a per-lane mapping table — **T014
+      landed**: kokoro direct rate (clamp 0.5–2.0), piper `1/s` → length_scale
+      (clamp 0.25–4.0); flow lanes hard-error (no rate control verified).
+- [x] RunMeta additions + wire honesty: `mode` (cold|warm), `load_ms` (fresh
+      on cold ONLY, absent key on warm), `determinism_class`, `rss_after_kb`,
+      `resets` — landed in serve.rs (types.rs untouched; serve-side meta).
+- [x] Lane capability surface for the swap decision — **scoreboard.md §T014
+      table** (harmony, ttfa, rtf, RSS per lane; determinism class from
+      meta). Per-lane eval capability rows stay on the existing scoreboard.
+- [x] `serve` builds WITHOUT a dedicated feature flag — lanes gate themselves
+      (feature-list-is-truth survives: a lane absent from the build errors
+      "not built into this binary" at request time; no mtime games needed).
+- [x] **Harmony gate**: daemon replay byte-identical for kokoro, piper
+      (same dial), flow-candle/pocket; ptts-class stays CLI-only (grain-race
+      budget documented, 1.4–2.2% under load) — see scoreboard §T014.
 - [ ] `voices`/`doctor` subcommands already parked for "later" in seam.md — same vocab
       becomes GET endpoints on the daemon; no separate surface.
 
@@ -117,6 +120,48 @@ Decided direction:
   (3.5 CPU / 2 GB cap), warm, worker-loop=1, versus the `kokoroWorker` pipeline on the
   same lines (chat text, links/emoji paths, speaker prefix). CLI cold numbers would
   overstate our win by the load term.
+
+## Shipped protocol (T014, 2026-11-06) — the wire, as landed
+
+- `target/release/tts serve --lane NAME=MODEL … --socket path \| --tcp host:port
+  [--lazy] [--idle-unload s] [--threads n] [--nice n]`. Boot log prints one
+  `loaded in <ms>` line per pre-warmed lane, then `listening` with
+  `idle-unload <s>, lazy <bool>`.
+- `POST /synth` body: `{lane?, text, voice?, lang?, seed?, speed?,
+  chunk_policy?}` — `lane` absent = first configured lane (single-lane
+  daemons can omit it).
+- Response 200 with NDJSON (chunked): meta → `chunk,seq,pcm_b64` × N → done.
+  **The `\n` is INSIDE each HTTP chunk payload** — bare `\r\n` is transport
+  framing that curl/python strip during decode (E2E lesson: naive framing
+  merged every event onto one line). Clients should decode byte-wise, not
+  line-wise.
+- Keys: meta = `type,lane,model,model_sha,voice,lang,seed,sample_rate,
+  runtime,chunk_policy,determinism_class,nondet_reason,restart_voice,mode,
+  load_ms? (only on cold),resets,rss_after_kb,vm_peak_kb,protocol:"ndjson-chunks/1"`;
+  done = `type,chunks,audio_s,wall_ms,ttfa_ms,rtf,mode,resets,sample_rate,
+  rss_after_kb,vm_peak_kb`.
+- `GET /health`: `{type:"health",pid,idle_unload_s,threads_dial,
+  rss_after_kb,vm_peak_kb,lang_default:"en",lanes:[{lane,model,loaded,
+  resets,idle_ms_ago}]}`.
+- Errors: plain HTTP before streaming (404 unknown path, 405 bad method,
+  400 parse, 413 oversize, 409 unknown lane/not loaded, 500/422 lane errors),
+  NDJSON `error` events after meta.
+- **speed**: piper `length_scale = 1/speed` (clamp 0.25–4.0); kokoro direct
+  rate (clamp 0.5–2.0); flow lanes refuse (hard error) — T014 measured only
+  piper (3.192 → 2.774 s at speed 1.25).
+- **Determinism**: daemon == CLI byte-identical for kokoro, piper (same
+  dial), flow-candle/pocket — harmony gate green. Cross-dial: kokoro
+  identical even across intra 4 vs 16; piper differs (intra-sensitive
+  matmuls). Relay clients that care pin the daemon's `--threads` and reuse
+  one daemon for a synth profile.
+- **Lifecycle gates measured**: lazy boot 15 MB RSS; cold 508 ms honest;
+  warm without `load_ms`; idle > 4 s unload, `resets:1`, arena freed.
+- **Hand-off to the relay swap (the ONE open T014 done-condition)**:
+  measure this daemon in-container (3.5 CPU / 2 GB cap, warm, worker-loop=1)
+  vs the `kokoroWorker` pipeline on the same lines and land the scoreboard
+  row BEFORE any lane swap. Zero-dep Node client = `http.request` with
+  `socketPath` (Node's builtin http supports UDS), byte-wise NDJSON decode,
+  ~1 file in `bot-relay/src/tts.ts` behind the existing `TtsEngine` seam.
 
 ## Cross-refs
 

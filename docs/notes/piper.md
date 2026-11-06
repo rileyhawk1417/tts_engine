@@ -38,6 +38,11 @@ System espeak-ng 1.52.0, warm in-process calls (ctypes), 20 sentences × 10 reps
   `espeak_TextToPhonemesWithTerminator` is NOT in the shared-build export table.
   Verify in the vendored build; T013 chunking already splits clauses at the text layer,
   so terminator granularity is a nicety, not a dependency.
+- **Speed dial (T014 serve-side)**: `SynthRequest.speed` maps to
+  `length_scale = 1/speed` clamped to `[0.25, 4.0]` (`speed_options`, `serve.rs`) —
+  passes through the existing VITS length-scale dial, no graph or seam change.
+  Daemon E2E: speed 1.25 → 3.192 s → 2.774 s of the same sentence (per-phoneme
+  integer rounding keeps the ratio off the exact 1.25).
 
 ## Three determinism lineages (why our surgery exists)
 

@@ -63,7 +63,7 @@ Status values: `not-started` · `in-progress` · `completed` · `blocked` · `sh
 
 | ID | Task | Status | Depends on |
 |---|---|---|---|
-| T014 | `tts serve` resident daemon | not-started (design note shipped; unblocked by T011 phase A — no session-4-speed dependency) | T002, T003, T013 |
+| T014 | `tts serve` resident daemon | done-code 2026-11-06 (daemon+health+synth+harmony gates green; 1/6 done-conditions OPEN = relay-side bench row — task file, notes/resident-service.md) | T002, T003, T013 |
 
 ## Critical path
 

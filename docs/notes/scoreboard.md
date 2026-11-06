@@ -337,3 +337,21 @@ grain-stable: 0% identity FAIL at idle here, and the hard-500 caveat was a
 ptts decode-batch effect). Note the lane's `model` telemetry label is the
 weights filename (`model.safetensors`) — disambiguate checkpoint family via
 the run dir / config.
+
+## 2026-11-06 — T014 `tts serve` resident daemon: shipped, daemon==CLI byte-identical
+
+Not lane-eval rows (eval stays CLI-only by law); these are the daemon's
+harmony/lifecycle gates on the 4800H, release, seed 42
+(`notes/resident-service.md` holds the wire detail):
+
+| lane (daemon warm) | ttfa | rtf | harmony vs CLI | notes |
+|---|---|---|---|---|
+| kokoro int8 | 4,204–4,641 ms | 1.28–1.32 | **sha `6bea4778…` byte-identical** — even across intra dials 4 vs 16 (intra = perf dial only for this graph) | 3.525 s audio, RSS ~390 MB |
+| piper amy-rng | **197–278 ms** | 0.062–0.087 | **byte-identical at the same `--threads` dial**; ACROSS dials bytes differ (VITS matmuls are intra-sensitive) | 3.192 s audio; speed 1.25 → 2.774 s |
+| flow-candle (pocket-alba) | 512 ms | ~0.22 | **byte-identical** | 33 chunks; warm RSS 600–786 MB; speed refused (flow lane) by design |
+
+Lifecycle: lazy boot 15 MB RSS (`loaded:false`) → cold 508 ms honest → warm
+(no `load_ms` key on the wire) → idle > 4 s → `loaded:false`, `resets:1`
+(arena freed). NDJSON newline INSIDE the HTTP chunk payload (a bare `\r\n`
+is transport framing that curl/python strip). Relay-side in-container bench
+row = the one OPEN T014 condition (hand-off in notes/resident-service.md).

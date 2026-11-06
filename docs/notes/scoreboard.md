@@ -312,3 +312,28 @@ on hard-500; if the cloning voice ever becomes a production path, run
 hard-500 then (the ptts-class FAIL-budget amendment applies only to ptts
 rows; llama-class reduction order is fixed per thread dial and per-chunk
 KV resets make cross-row state impossible).
+
+## 2026-11-06 — T015 pocket-tts as a second flow-candle checkpoint: hard-80 trusted, fastest flow-class row
+
+Run `20261106-0141-flow-candle-hard-t015-pocket-alba` (hard-80, seed 42,
+nemo-int8 `te @38b3d623437347e0`, alba fallback voice): **80/80 byte-identity
+pass → trusted.** WER mean **37.06** / median 38.75; TTFA med 503 / p95
+521 ms; rtf med **0.220** (wall/audio ≈ 4.5× — the fastest flow-class number
+measured); peak RSS 666,376 KB. Determinism 3× byte-identical standalone
+(`43976644dbf857ea…`); phonon-31m regression byte-equal to pre-T015 outputs.
+
+Same-judge hard-80 comparison (mean, lower is better): ryan-high 33.01·(500)
+≪ **pocket-alba 37.06** ≪ kokoro 42.03 ≪ phonon-candle 60.28 ≪ ptts 64.24 ≪
+chatterbox-cbx-t4 67.54. Pocket-alba WER mean beats every flow-latent row and
+sits between piper ryan and kokoro; the adversarial-outlier tail (WER max
+125) is smaller than its siblings'. This replaces phonon-31m as the
+best-behaved flow-latent voice; 31m stays the Apache-2.0 portability
+reference and pocket's weights are CC-BY-4.0 (code MIT).
+
+Verdict (T015): **ADOPT** — pocket-tts-en is the second checkpoint family of
+the flow-candle lane (`--model models/pocket-tts-en`); the ptts-class
+FAIL-budget amendment applies to ptts rows only (candle inline decode is
+grain-stable: 0% identity FAIL at idle here, and the hard-500 caveat was a
+ptts decode-batch effect). Note the lane's `model` telemetry label is the
+weights filename (`model.safetensors`) — disambiguate checkpoint family via
+the run dir / config.

@@ -44,6 +44,7 @@ Status values: `not-started` · `in-progress` · `completed` · `blocked` · `sh
 | T007 | Phonon evaluation + lane-vs-lane scoreboard | done 2026-11-05 (hard-80 in background; verdict in notes/phonon-eval.md) | T005, T006 |
 | T008 | Candle from-scratch Phonon-31m port | done 2026-11-05 (`86c63df`; 48-step parity vs oracle) | T006 |
 | T009 | Parity gate + q-law experiments | done 2026-11-05 (parity battery + hard-500 1t; notes in qlaws.md/scoreboard.md) | T007, T008 |
+| T015 | pocket-tts second flow-candle checkpoint | done 2026-11-06 (implemented + gates green; hard-80 80/80 trusted, WER mean 37.06 / med 38.75, rtf 0.220, RSS 666 MB — notes/pocket.md) | T008, T009 |
 
 ## Milestone M3 — ggml-ffi lane (cloning)  **(CLOSED 2026-11-06: T010 adopted as the cloning lane** — llama.cpp `mtmd_helper::gen_audio` behind an own C++ shim; hard-80 80/80 identity trusted; WER med 60.0 = not a quality contender; ≈2.4 GB RSS = CLI-scale)**
 
@@ -63,7 +64,6 @@ Status values: `not-started` · `in-progress` · `completed` · `blocked` · `sh
 | ID | Task | Status | Depends on |
 |---|---|---|---|
 | T014 | `tts serve` resident daemon | not-started (design note shipped; unblocked by T011 phase A — no session-4-speed dependency) | T002, T003, T013 |
-| T015 | pocket-tts second flow-candle checkpoint | in-progress (audit COMPLETE 2026-11-06; tokenizer unblocked via model repo; checkpoint staged) | T008, T009 |
 
 ## Critical path
 

@@ -6,3 +6,4 @@
 /eval/out
 __pycache__/
 /models
+/outputs/

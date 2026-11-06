@@ -1,6 +1,6 @@
 # T015 — Pocket-tts as a second flow-candle checkpoint
 
-- **Status:** not-started (audited 2026-11-06; ready to implement)
+- **Status:** done (2026-11-06; implemented + all gates green in one session)
 - **Milestone:** M2-flow expansion (second checkpoint in the existing `flow-candle` lane; **not** a new lane)
 - **Deps:** T008 (candle port), T009 (parity gate); builds on T013 chunking via the lane
 - **North stars:** `docs/notes/phonon.md` (candle port laws), `docs/plan/targets.md` (pocket row), upstream `kyutai-labs/pocket-tts` (MIT)
@@ -103,26 +103,40 @@ gate, and a hard-80/500 scoreboard row.
 
 ## Done conditions
 
-1. [ ] `models/pocket-tts-en/config.json` authored + `loader.rs` bos→sink remap row; phonon-31m lane still passes
+1. [x] `models/pocket-tts-en/config.json` authored + `loader.rs` bos→sink remap row; phonon-31m lane still passes
        smoke + parity byte-identity (regression gate).
-2. [ ] `Family::Pocket` branching: voice files load as KV caches (`load_voice_kv`), `Voice` payload enum wired
+2. [x] `Family::Pocket` branching: voice files load as KV caches (`load_voice_kv`), `Voice` payload enum wired
        through `synth.rs` (`base_state` import path), min-frames-before-eos 6 for pocket.
-3. [ ] Lane e2e: `./target/release/tts synth --lane flow-candle --model pocket-tts-en --voice alba --text "…"` →
+3. [x] Lane e2e: `./target/release/tts synth --lane flow-candle --model pocket-tts-en --voice alba --text "…"` →
        valid WAV (24 kHz) + telemetry row with `load_ms`, stages, `determinism`.
-4. [ ] Byte-identity gate: 3× byte-identical at fixed (dir, seed, threads=1) — pocket rows; plus 3× phonon-31m
+4. [x] Byte-identity gate: 3× byte-identical at fixed (dir, seed, threads=1) — pocket rows; plus 3× phonon-31m
        regression unchanged.
-5. [ ] hard-80 scoreboard row (nemo judge, seed 42, threads dial pinned in the run dir), verdict stated with the
+5. [x] hard-80 scoreboard row (nemo judge, seed 42, threads dial pinned in the run dir), verdict stated with the
        ptts-class FAIL budget law.
-6. [ ] `docs/notes/` updated (new note `docs/notes/pocket.md` or a section in `phonon.md`), `targets.md` row,
+6. [x] `docs/notes/` updated (new note `docs/notes/pocket.md` or a section in `phonon.md`), `targets.md` row,
        `index.md` status, scoreboard section, memory checkpoint.
+
+## Result (2026-11-06)
+
+- **Parity adapted** (no ptts-0.6.0 oracle for pocket): structural equivalence via `flow_candle_probe`
+  (214 tensors, 214/214 visible through VarBuilder, 170 used by remap; 43 zeroed `mimi.encoder*` unused)
+  + **self-identity**: 3× byte-identical pocket synths (`43976644dbf857ea…`); phonon-31m 3× unique-sha=1
+  and byte-equal (`cmp`) to pre-T015 outputs. Round-trip transcripts verbatim (short + mid sentences),
+  long-text near-verbatim with expected judge artifacts.
+- **Hard-80** `20261106-0141-flow-candle-hard-t015-pocket-alba`: 80/80 identity → trusted; WER mean 37.06 /
+  median 38.75; TTFA med 503 / p95 521 ms; rtf med 0.220; RSS 666 MB. Beats every flow-latent row on WER mean;
+  fastest flow-class rtf. FAIL budget: candle inline decode, 0% at idle (amendment applies to ptts rows only).
+- All seven deviations landed exactly as labeled in the audit (see `docs/notes/pocket.md`); the
+  `time_rms_norm` open question in the audit resolved by source: ptts-0.6.0 `mlp.rs` documents `RmsVar`
+  as pocket's default ("pocket-tts checkpoints load unchanged"), phonon pins `rms`.
 
 ## Verify list
 
-- [ ] pocket flow_lm width law: every `flow_lm.*` tensor ≥1024 wide or explicitly checked vs config
-- [ ] `cond_embed.weight [512,1024]` + `input_linear [1024,32]` + `out_eos [1,1024]` + `out_norm [1024]` shapes exact
-- [ ] mimi decode path tensors only (43 zeroed encoder tensors dropped by remap (`mimi.encoder*` unused))
-- [ ] voice KV import: 6 layers × [2,1,F,16,64] F32 + offset I64 accepted for all 27 voices; unknown voice → error
-- [ ] text prompt: Unigram tokenizer ids + LUT n_bins 4000 (id<4000) + bos semantics (embed row 4000)
-- [ ] EOS: threshold -4.0, min-frames-before-eos 6
-- [ ] `bos_before_voice [1,1,1024]` lands in `speaker_wavs.sink` (loaded via PrefixSink path)
-- [ ] regression: phonon-31m smoke + parity byte-identity unchanged
+- [x] pocket flow_lm width law: every `flow_lm.*` tensor ≥1024 wide or explicitly checked vs config
+- [x] `cond_embed.weight [512,1024]` + `input_linear [1024,32]` + `out_eos [1,1024]` + `out_norm [1024]` shapes exact
+- [x] mimi decode path tensors only (43 zeroed encoder tensors dropped by remap (`mimi.encoder*` unused))
+- [x] voice KV import: 6 layers × [2,1,F,16,64] F32 + offset I64 accepted for all 27 voices; unknown voice → error
+- [x] text prompt: Unigram tokenizer ids + LUT n_bins 4000 (id<4000) + bos semantics (embed row 4000)
+- [x] EOS: threshold -4.0, min-frames-before-eos 6
+- [x] `bos_before_voice [1,1,1024]` lands in `speaker_wavs.sink` (loaded via PrefixSink path)
+- [x] regression: phonon-31m smoke + parity byte-identity unchanged

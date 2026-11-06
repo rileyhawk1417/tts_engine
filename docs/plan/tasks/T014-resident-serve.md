@@ -52,7 +52,10 @@ throughput headroom, decided separately.
    warm-resident per active lane target (kokoro int8 ~457 MB = pair with
    idle-unload or trim). **T010 ggml-ffi deviation: peak ≈ 2.4 GB (weights
    1.03 GB + KV + compute buffers) — the lane cannot live under this target;
-   if served, it needs its own headroom rule or stays CLI-only.**
+   if served, it needs its own headroom rule or stays CLI-only. Second data
+   point (T015): pocket-tts-en ≈ 666 MB peak (BF16→F32 materialization +
+   KV voices) — 2× the ≤300 MB target, still servable with idle-unload.
+   Kokoro 457 MB / flow-candle-phonon 219 MB stay in-budget.**
 6. Relay-bench TTS phase (separate harness work): measure the DAEMON
    in-container, warm, worker-loop=1, vs `kokoroWorker` on the same lines.
    CLI cold numbers overstate the win by the load term — never quote them.

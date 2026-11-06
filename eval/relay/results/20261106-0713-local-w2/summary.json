@@ -1,0 +1,52 @@
+{
+  "label": "local-approximation (non-admissible; in-container row required)",
+  "stamp": "2026-11-06T05:16:49.094Z",
+  "sock": "/tmp/tts/tts.sock",
+  "workers": 2,
+  "reps": 1,
+  "seed": 42,
+  "lang": "en",
+  "lines": 14,
+  "host": {
+    "platform": "linux",
+    "node": "v22.22.0"
+  },
+  "lanes": {
+    "kokoro": {
+      "n": 14,
+      "ttfa": {
+        "med": 7025,
+        "p95": 9912
+      },
+      "wall": {
+        "med": 7026,
+        "p95": 9913
+      },
+      "rtf_mean": 0.5148735266282372,
+      "audio_total_s": 47.88,
+      "rss_after_kb_max": 593592,
+      "warmup": {
+        "ttfa_ms": 2794,
+        "rss_after_kb": 534184
+      }
+    },
+    "piper": {
+      "n": 14,
+      "ttfa": {
+        "med": 374,
+        "p95": 503
+      },
+      "wall": {
+        "med": 374,
+        "p95": 504
+      },
+      "rtf_mean": 9.123104912067921,
+      "audio_total_s": 45.13,
+      "rss_after_kb_max": 593592,
+      "warmup": {
+        "ttfa_ms": 150,
+        "rss_after_kb": 593592
+      }
+    }
+  }
+}

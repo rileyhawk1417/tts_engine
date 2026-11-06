@@ -60,3 +60,36 @@ arm on the same lines + the real relay box hardware.
 2. Same lines through `kokoroWorker` (`KOKORO_POOL_SIZE=1`) — replay from
    `relay-bench`'s existing harness/lines so both sides share the corpus.
 3. Land both on the scoreboard as the T014 close-out row (before any swap).
+
+## 2026-11-06 addendum 2 — flow-candle lane, in-container (first CPU-device row)
+
+Same docker topology as the 0725 row (archlinux base, host client via
+bind-mounted UDS, `--cpus 3.5 --memory 2g --memory-swap 2g` cgroup-verified:
+cpu.max=350000/100000, memory.max=2GiB), new lane. Binary is the **cuda-featured
+release build** (the GPU-sweep binary, Nov 6 10:29) booted with
+`--lane flow-candle=/srv/models/phonon-31m-en --device cpu` (cpu is the
+flow-candle default and never initializes CUDA; the DT_NEEDED GPU libs
+libcuda/curand/cublas/cudart are host bind-mounts so the loader is satisfied).
+The bare `archlinux` base lacks the espeak-ng runtime deps the compiled-in
+piper/espeak feature links (libpcaudio, libsonic, audio stack transitives) —
+bound from the host by exact `ldd` walk, all `ro`; ORT lib bound too but never
+dlopened (a flow-candle-only serve creates no ORT sessions).
+
+Runs → `results/20261106-{1112-…-w1, 1115-…-w2, 1119-…-rerun}/`:
+
+| Run | TTFA med | TTFA p95 | wall med | rtf_mean | rss max | Notes |
+|---|---|---|---|---|---|---|
+| w1 (serial) | 393 ms | 535 ms | 11.8 s | 0.284 | 421 MB | ran while the GPU hard-sweep judge tail was still busy |
+| w2 (2 in-flight) | 414 ms | 508 ms | 12.2 s | 0.287 | 423 MB | queueing barely moves TTFA |
+| rerun, box idle | **384 ms** | **479 ms** | 11.0 s | 0.299 | 403 MB | quoted row; dev-board rtf 0.334 reproduced |
+
+Differences vs the kokoro/piper rows: flow-candle streams **many chunks per
+line** (22–61, vs chunks=1 there) — NDJSON streaming buys real early audio
+here: TTFA ~0.39 s against ~11 s total synthesis. Sustained throughput stays
+slower than realtime (rtf 0.30 audio/wall → ~3.3× slower at 3.5 CPUs; same
+class as kokoro's 0.52, where piper's 8.5 is the only lane that keeps up).
+For the relay feel this is a TTFA-first lane: first words land 17× under the
+2 s bar with kokoro-class sustained backlog on long read-aloud queues.
+
+Same remaining gap as above: `kokoroWorker` comparison arm + the real relay
+box hardware — those rows move the claim from engine-side to admissible.

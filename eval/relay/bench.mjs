@@ -26,7 +26,7 @@
  */
 import { mkdirSync, writeFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { daemonSynthesize, daemonAvailable } from "../../relay/tts-client.js";
+import { daemonSynthesize, daemonAvailable } from "../../examples/node-client/tts-client.js";
 
 // ---- chat-shaped corpus (what the bot actually reads aloud: 3–40 words,
 // ---- speaker prefix on some lines, labeled link/emoji tokens, punctuation).

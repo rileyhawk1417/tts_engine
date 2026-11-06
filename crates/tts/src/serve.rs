@@ -50,6 +50,10 @@ pub struct ServeConfig {
     pub threads: Option<usize>,
     /// setpriority on the process (relay's nice discipline).
     pub nice: Option<i32>,
+    /// Candle device for the flow-candle lane: `cpu` default, `cuda` opt-in
+    /// (validated here, forwarded as TTS_CANDLE_DEVICE before any lane load;
+    /// cuda without the flow-candle-cuda feature fails lane load loudly).
+    pub device: Option<String>,
 }
 
 enum Listener {
@@ -163,6 +167,24 @@ pub fn run(cfg: &ServeConfig) -> ExitCode {
         eprintln!("serve: no lanes; pass --lane NAME=MODEL (repeatable)");
         return ExitCode::from(2);
     }
+    // Candle device select (flow-candle lane): validated here so an operator
+    // typo fails at boot; forwarded via TTS_CANDLE_DEVICE for the loader.
+    // cuda on a non-cuda build is NOT rejected here — make_lane load at boot
+    // rejects it loudly (operator config error, same fail-fast path).
+    if let Some(d) = &cfg.device {
+        match d.as_str() {
+            "" | "cpu" => {}
+            "cuda" | "cuda:0" => {
+                // SAFETY: single-threaded boot, before any lane/thread spawn;
+                // the only env mutation in the process.
+                unsafe { std::env::set_var("TTS_CANDLE_DEVICE", d) };
+            }
+            other => {
+                eprintln!("serve: --device accepts cpu | cuda (cuda:0), got {other:?}");
+                return ExitCode::from(2);
+            }
+        }
+    }
     let listener = match bind(cfg) {
         Ok(l) => l,
         Err(e) => {
@@ -208,13 +230,14 @@ pub fn run(cfg: &ServeConfig) -> ExitCode {
     }
 
     eprintln!(
-        "serve: listening on {} — lanes {}, idle-unload {}s, lazy {}",
+        "serve: listening on {} — lanes {}, device {}, idle-unload {}s, lazy {}",
         listener.label(),
         slots
             .iter()
             .map(|s| s.name.as_str())
             .collect::<Vec<_>>()
             .join(","),
+        cfg.device.as_deref().unwrap_or("cpu"),
         cfg.idle_unload,
         cfg.lazy
     );

@@ -355,3 +355,39 @@ Lifecycle: lazy boot 15 MB RSS (`loaded:false`) → cold 508 ms honest → warm
 (arena freed). NDJSON newline INSIDE the HTTP chunk payload (a bare `\r\n`
 is transport framing that curl/python strip). Relay-side in-container bench
 row = the one OPEN T014 condition (hand-off in notes/resident-service.md).
+
+## 2026-11-06 — flow-candle on CUDA (session chunks 2+3): device knob, GPU rows, quality gate
+
+Device seam: `TTS_CANDLE_DEVICE` (synth env, default `cpu`; `cuda` needs cargo
+feature `flow-candle-cuda` = candle-core/cuda **plus candle-nn/cuda** — nn's
+own cuda feature is what carries its softmax/sigmoid/rms kernels; layer-norm
+got a manual device-branch route `nns::ln_forward` mirroring candle-nn's
+fallback math, CPU keeps the library op byte-faithful). `tts serve --device
+cpu|cuda` validates at boot and forwards via the same env; cuda on a
+non-cuda build fails lane load loudly (operator config error).
+`determinism_class` stays `seeded` — byte-identity gates are **per-device**
+(same binary+seed+device): GPU bytes ≠ CPU bytes BY DESIGN, never compare
+cross-device shas. RunMeta `runtime` carries the device label. Relay builds
+stay NON-cuda (cuda-linked binary carries ~+190 MB host RSS even on CPU runs;
+peak VRAM 369 MiB of 4096). No per-process JIT cold penalty (kernels compile
+at build time). GPU cold load: 469 ms (serve boot, honest `load_ms`).
+
+Single-clip smoke (phonon-31m-en, 11.1 s, seed 42): GPU rtf ≈ 5.0 = **15.6×
+CPU (0.327)**, warm TTFA 25–50 ms. Eval rows (nemo-int8 te@38b3d623, seed 42,
+`TTS_CANDLE_DEVICE=cuda`, run.sh swaps the feature itself, identity all pass →
+trusted):
+
+| corpus | GPU (this session) | CPU reference | TTFA GPU | rtf GPU |
+|---|---|---|---|---|
+| hard-500 | **57.42** (`20261106-1029-flow-candle-hard-gpu`) | flow-ptts 56.94/56.98 untrusted (identity FAIL) | — | — |
+| hard-80 | **62.99 / med 42.86** (`20261106-1113-flow-candle-hard-80-gpu`) | 60.28 / med 42.86 (`…t009-parity`) | 42 ms mean | 4.78 |
+
+Paired per-sentence (80/80 common, same seed+judge): **75/80 judged
+identically**; 4 worse / 1 better; median delta 0.00. The +2.71 mean shift is
+digit-normalization style drift, not intelligibility loss — GPU pronounces
+`4502-1187-33902` as `four five zero two one one eight seven three three nine
+zero two` and `march 14th` as `march fourteenth, twenty twenty six` where CPU
+grouped digits; all five moved sentences sit at ≥ 50 WER on CPU already
+(number/date classes, the checkpoint's known weak tail). **Quality gate: GPU
+row passes the WER-class gate** — same class as CPU, 16× faster, at the price
+of a new per-device byte class.

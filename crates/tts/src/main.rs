@@ -105,6 +105,11 @@ enum Cmd {
         /// setpriority(2) niceness for the daemon process (relay's -n 10)
         #[arg(long)]
         nice: Option<i32>,
+        /// Candle device for the flow-candle lane: cpu (default) | cuda.
+        /// Validated at boot and forwarded via TTS_CANDLE_DEVICE; a cuda
+        /// value on a non-cuda build fails lane load (operator error).
+        #[arg(long)]
+        device: Option<String>,
     },
 }
 
@@ -145,6 +150,7 @@ fn main() -> ExitCode {
             idle_unload,
             threads,
             nice,
+            device,
         } => serve::run(&serve::ServeConfig {
             lanes,
             socket,
@@ -153,6 +159,7 @@ fn main() -> ExitCode {
             idle_unload,
             threads,
             nice,
+            device,
         }),
     }
 }

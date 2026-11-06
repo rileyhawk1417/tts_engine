@@ -54,8 +54,12 @@ TTS=target/release/tts
 # size/mtime are NOT staleness signals; only the feature list is truth).
 # Run flow-ptts rows with TTS_XN_THREADS=1 so byte-identity gates
 # pass (xn CPU FP kernels are order-nondeterministic under parallelism).
-[ -x "$TTS" ] || cargo build --release --features graph-ort,flow-ptts,flow-candle,piper,ggml-ffi -q
-cargo build --release --features graph-ort,flow-ptts,flow-candle,piper,ggml-ffi -q
+# GPU rows: TTS_CANDLE_DEVICE=cuda* swaps the flow-candle feature for the
+# cuda one (a plain rebuild would strip cuda and re-link a CPU binary).
+FC_FEATURE=flow-candle
+case "${TTS_CANDLE_DEVICE:-}" in cuda*) FC_FEATURE=flow-candle-cuda ;; esac
+[ -x "$TTS" ] || cargo build --release --features graph-ort,flow-ptts,$FC_FEATURE,piper,ggml-ffi -q
+cargo build --release --features graph-ort,flow-ptts,$FC_FEATURE,piper,ggml-ffi -q
 if [ "$LANE" = flow-ptts ]; then
     export TTS_XN_THREADS="${TTS_XN_THREADS:-1}"
 fi
